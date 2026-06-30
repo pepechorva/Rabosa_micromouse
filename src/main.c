@@ -21,14 +21,16 @@
 #error "Unsupported STM32 Family"
 #endif
 
-
 #define LEDINBOARD_PIN                GPIO_PIN_13
 #define LEDINBOARD_GPIO_PORT          GPIOC
+#define LEDINBOARD_GPIO_CLK_ENABLE()  __HAL_RCC_GPIOC_CLK_ENABLE()
+
 #define LED_PIN                       (GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3)
 #define LED_GPIO_PORT                 GPIOA
-
 #define LED_GPIO_CLK_ENABLE()         __HAL_RCC_GPIOA_CLK_ENABLE()
-#define LEDINBOARD_GPIO_CLK_ENABLE()  __HAL_RCC_GPIOC_CLK_ENABLE()
+
+// Instancia global del Timer 2
+TIM_HandleTypeDef htim2;
 
 void SystemClock_Config(void)
 {
@@ -54,13 +56,12 @@ void SystemClock_Config(void)
     while(1);
   }
 
-  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2
-     clocks dividers */
+  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 clocks dividers */
   clkinitstruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   clkinitstruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   clkinitstruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   clkinitstruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  clkinitstruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  clkinitstruct.APB1CLKDivider = RCC_HCLK_DIV2; // Reloj de periféricos APB1 = 64MHz / 2 = 32MHz. TIM2 hereda x2 -> 64MHz.
   if (HAL_RCC_ClockConfig(&clkinitstruct, FLASH_LATENCY_2)!= HAL_OK)
   {
     /* Initialization Error */
@@ -68,66 +69,89 @@ void SystemClock_Config(void)
   }
 }
 
-GPIO_InitTypeDef GPIOA_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct;
-  
-  GPIO_InitStruct.Pin = LED_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(LED_GPIO_PORT, &GPIO_InitStruct); 
-  return GPIO_InitStruct;
+// Configuración del Timer 2 y mapeo de los 4 canales PWM para PA0, PA1, PA2, PA3
+void MX_TIM2_Init(void) {
+    __HAL_RCC_TIM2_CLK_ENABLE();
+    LED_GPIO_CLK_ENABLE();
+
+    // Los pines PA0, PA1, PA2, PA3 deben configurarse como función alternativa push-pull (AF_PP)
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = LED_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(LED_GPIO_PORT, &GPIO_InitStruct);
+
+    // Ajuste de periodo para el reloj configurado a 64MHz
+    htim2.Instance = TIM2;
+    htim2.Init.Prescaler = 63;        // Frecuencia de conteo = 64MHz / (63 + 1) = 1 MHz
+    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim2.Init.Period = 1000;         // Resolución total = 1000 pasos (0 a 1000 para facilitar el porcentaje)
+    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    HAL_TIM_PWM_Init(&htim2);
+
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 0;              // Ciclo de trabajo inicial al 0%
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    // Configura los 4 canales asociados a PA0 (CH1), PA1 (CH2), PA2 (CH3) y PA3 (CH4)
+    HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1);
+    HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2);
+    HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3);
+    HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4);
 }
 
-GPIO_InitTypeDef GPIOC_Init(void)
+void GPIOC_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct;
-  
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   GPIO_InitStruct.Pin = LEDINBOARD_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LEDINBOARD_GPIO_PORT, &GPIO_InitStruct); 
-  return GPIO_InitStruct;
 }
-
-
-
 
 int main(void)
 {
   HAL_Init();
-
-  /* Configure the system clock to 64 MHz */
   SystemClock_Config();
 
-  LED_GPIO_CLK_ENABLE();
   LEDINBOARD_GPIO_CLK_ENABLE();
+  GPIOC_Init();
   
-  GPIO_InitTypeDef GPIOAs = GPIOA_Init();
-  GPIO_InitTypeDef GPIOCs = GPIOC_Init();
+  // Inicializamos el Timer 2 con sus configuraciones PWM
+  MX_TIM2_Init();
   
-  HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_SET);
+  // Encendemos el LED integrado (lógica inversa de la Blue Pill)
+  HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
 
+  // Activamos las salidas PWM en los 4 canales
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 
-  const uint8_t led_pins[] = {GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3};
+  int16_t dutyCycle = 0;
+  int8_t step = 10; // Incrementos de ciclo de trabajo (Paso de 1%)
 
   while (1)
   {
-    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
-    for (uint8_t counter = 0; counter < 0x10; counter++)
-    {
-      uint8_t tmp = counter;
-      for(uint8_t i = 0; i < 4; i++)
-      {
-        uint8_t led = tmp % 2;
-        HAL_GPIO_WritePin(LED_GPIO_PORT, led_pins[i], led ? GPIO_PIN_SET : GPIO_PIN_RESET);  
-        tmp = tmp / 2;
-      }
-      HAL_Delay(1000);
+    // Modifica dinámicamente el pulso en los registros correspondientes
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, dutyCycle);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, dutyCycle);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, dutyCycle);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, dutyCycle);
+
+    dutyCycle += step;
+
+    // Cambia de dirección al llegar a los extremos (0% o 100% de 1000 pasos)
+    if (dutyCycle >= 1000 || dutyCycle <= 0) {
+      step = -step; 
     }
+
+    HAL_Delay(15); // Ajusta este tiempo para controlar la velocidad del "Blink" o desvanecimiento
   }
 }
 
