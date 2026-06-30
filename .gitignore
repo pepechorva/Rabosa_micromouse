@@ -1,0 +1,9 @@
+*
+
+# excepciones del PlaformIO
+!.gitignore
+!platformio.ini
+!src
+!src/*.c
+
+
