@@ -32,49 +32,47 @@
 // Instancia global del Timer 2
 TIM_HandleTypeDef htim2;
 
+// Configura el oscilador externo HSE y el multiplicador PLL para alcanzar los 72 MHz máximos
 void SystemClock_Config(void)
 {
   RCC_ClkInitTypeDef clkinitstruct = {0};
   RCC_OscInitTypeDef oscinitstruct = {0};
 
-  /* Configure PLL ------------------------------------------------------*/
-  /* PLL configuration: PLLCLK = (HSI / 2) * PLLMUL = (8 / 2) * 16 = 64 MHz */
-  /* PREDIV1 configuration: PREDIV1CLK = PLLCLK / HSEPredivValue = 64 / 1 = 64 MHz */
-  /* Enable HSI and activate PLL with HSi_DIV2 as source */
-  oscinitstruct.OscillatorType  = RCC_OSCILLATORTYPE_HSI;
-  oscinitstruct.HSEState        = RCC_HSE_OFF;
-  oscinitstruct.LSEState        = RCC_LSE_OFF;
-  oscinitstruct.HSIState        = RCC_HSI_ON;
-  oscinitstruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  oscinitstruct.HSEPredivValue    = RCC_HSE_PREDIV_DIV1;
-  oscinitstruct.PLL.PLLState    = RCC_PLL_ON;
-  oscinitstruct.PLL.PLLSource   = RCC_PLLSOURCE_HSI_DIV2;
-  oscinitstruct.PLL.PLLMUL      = RCC_PLL_MUL16;
-  if (HAL_RCC_OscConfig(&oscinitstruct)!= HAL_OK)
+  /* Habilita el cristal externo de 8MHz (HSE) y multiplica x9: 8MHz * 9 = 72 MHz */
+  oscinitstruct.OscillatorType      = RCC_OSCILLATORTYPE_HSE;
+  oscinitstruct.HSEState            = RCC_HSE_ON;
+  oscinitstruct.HSEPredivValue      = RCC_HSE_PREDIV_DIV1;
+  oscinitstruct.LSEState            = RCC_LSE_OFF;
+  oscinitstruct.HSIState            = RCC_HSI_OFF;
+  oscinitstruct.PLL.PLLState        = RCC_PLL_ON;
+  oscinitstruct.PLL.PLLSource       = RCC_PLLSOURCE_HSE;
+  oscinitstruct.PLL.PLLMUL          = RCC_PLL_MUL9; 
+  if (HAL_RCC_OscConfig(&oscinitstruct) != HAL_OK)
   {
-    /* Initialization Error */
+    /* Error de inicialización */
     while(1);
   }
 
-  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 clocks dividers */
+  /* Elige el PLL como reloj de sistema y configura los divisores de buses */
   clkinitstruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   clkinitstruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  clkinitstruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  clkinitstruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  clkinitstruct.APB1CLKDivider = RCC_HCLK_DIV2; // Reloj de periféricos APB1 = 64MHz / 2 = 32MHz. TIM2 hereda x2 -> 64MHz.
-  if (HAL_RCC_ClockConfig(&clkinitstruct, FLASH_LATENCY_2)!= HAL_OK)
+  clkinitstruct.AHBCLKDivider = RCC_SYSCLK_DIV1;  // AHB Clock = 72 MHz (Máximo)
+  clkinitstruct.APB2CLKDivider = RCC_HCLK_DIV1;   // APB2 Clock = 72 MHz (Máximo)
+  clkinitstruct.APB1CLKDivider = RCC_HCLK_DIV2;   // APB1 Clock = 36 MHz (Límite máximo permitido de 36MHz)
+  
+  if (HAL_RCC_ClockConfig(&clkinitstruct, FLASH_LATENCY_2) != HAL_OK)
   {
-    /* Initialization Error */
+    /* Error de inicialización */
     while(1);
   }
 }
 
-// Configuración del Timer 2 y mapeo de los 4 canales PWM para PA0, PA1, PA2, PA3
+// Configuración del Timer 2 y mapeo de los 4 canales PWM para PA0, PA1, PA2, PA3 a 72MHz
 void MX_TIM2_Init(void) {
     __HAL_RCC_TIM2_CLK_ENABLE();
     LED_GPIO_CLK_ENABLE();
 
-    // Los pines PA0, PA1, PA2, PA3 deben configurarse como función alternativa push-pull (AF_PP)
+    // Los pines PA0, PA1, PA2, PA3 se configuran como función alternativa push-pull (AF_PP)
     GPIO_InitTypeDef GPIO_InitStruct = {0};
     GPIO_InitStruct.Pin = LED_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -82,11 +80,12 @@ void MX_TIM2_Init(void) {
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(LED_GPIO_PORT, &GPIO_InitStruct);
 
-    // Ajuste de periodo para el reloj configurado a 64MHz
+    /* El reloj base de TIM2 en APB1 se multiplica automáticamente x2 si APB1 div != 1.
+       Por lo tanto, la frecuencia de entrada del Timer es: 36 MHz * 2 = 72 MHz. */
     htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 63;        // Frecuencia de conteo = 64MHz / (63 + 1) = 1 MHz
+    htim2.Init.Prescaler = 71;        // Frecuencia de conteo = 72MHz / (71 + 1) = 1 MHz
     htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 1000;         // Resolución total = 1000 pasos (0 a 1000 para facilitar el porcentaje)
+    htim2.Init.Period = 1000;         // Resolución total = 1000 pasos (Frecuencia PWM = 1MHz / 1000 = 1 kHz)
     htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     HAL_TIM_PWM_Init(&htim2);
 
@@ -121,7 +120,7 @@ int main(void)
   LEDINBOARD_GPIO_CLK_ENABLE();
   GPIOC_Init();
   
-  // Inicializamos el Timer 2 con sus configuraciones PWM
+  // Inicializamos el Timer 2 con las nuevas configuraciones para 72MHz
   MX_TIM2_Init();
   
   // Encendemos el LED integrado (lógica inversa de la Blue Pill)
@@ -151,7 +150,7 @@ int main(void)
       step = -step; 
     }
 
-    HAL_Delay(15); // Ajusta este tiempo para controlar la velocidad del "Blink" o desvanecimiento
+    HAL_Delay(15); // Controla la velocidad de desvanecimiento
   }
 }
 
