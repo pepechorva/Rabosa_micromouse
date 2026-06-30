@@ -110,14 +110,24 @@ int main(void)
   
   HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
   HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_SET);
+
+
+  const uint8_t led_pins[] = {GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3};
+
   while (1)
   {
-    HAL_GPIO_TogglePin(LED_GPIO_PORT, LED_PIN);
-    HAL_GPIO_TogglePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN);
-    //  HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
-    //  HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
-  
-    HAL_Delay(1000);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
+    for (uint8_t counter = 0; counter < 0x10; counter++)
+    {
+      uint8_t tmp = counter;
+      for(uint8_t i = 0; i < 4; i++)
+      {
+        uint8_t led = tmp % 2;
+        HAL_GPIO_WritePin(LED_GPIO_PORT, led_pins[i], led ? GPIO_PIN_SET : GPIO_PIN_RESET);  
+        tmp = tmp / 2;
+      }
+      HAL_Delay(1000);
+    }
   }
 }
 
