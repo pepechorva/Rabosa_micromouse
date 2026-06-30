@@ -92,7 +92,7 @@ void MX_TIM2_Init(void) {
     TIM_OC_InitTypeDef sConfigOC = {0};
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
     sConfigOC.Pulse = 0;              // Ciclo de trabajo inicial al 0%
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
     // Configura los 4 canales asociados a PA0 (CH1), PA1 (CH2), PA2 (CH3) y PA3 (CH4)
@@ -135,24 +135,62 @@ int main(void)
   int16_t dutyCycle = 0;
   int8_t step = 10; // Incrementos de ciclo de trabajo (Paso de 1%)
 
+  uint16_t dutyLedA0 = 0;
+  uint16_t dutyLedA1 = 0;
+  uint16_t dutyLedA2 = 0;
+  uint16_t dutyLedA3 = 0;
+  
+  int8_t activeLED= 1;
+  int8_t direction = 1;
+  uint32_t moveCounter = 0;
+
   while (1)
   {
-    // Modifica dinámicamente el pulso en los registros correspondientes
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, dutyCycle);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, dutyCycle);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, dutyCycle);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, dutyCycle);
+    // 1. ATENUACIÓN CONSTANTE (Corre a máxima velocidad en cada ciclo del bucle)
+    // Multiplicar por 0.85 desgasta el brillo suavemente. Ajusta a 0.80 si quieres menos estela.
+    dutyLedA0 = (uint16_t)(dutyLedA0 * 0.85);
+    dutyLedA1 = (uint16_t)(dutyLedA1 * 0.85);
+    dutyLedA2 = (uint16_t)(dutyLedA2 * 0.85);
+    dutyLedA3 = (uint16_t)(dutyLedA3 * 0.85);
 
-    dutyCycle += step;
+    // 2. CONTROL DE MOVIMIENTO (Solo movemos el "foco" cada X ciclos)
+    // Esto da tiempo a que los LEDs anteriores muestren su rampa de apagado
+    moveCounter++;
+    if (moveCounter >= 12) // Ajusta este número para cambiar la velocidad del viaje (ej: 8 más rápido, 15 más lento)
+    {
+      moveCounter = 0; // Reiniciamos el contador de movimiento
 
-    // Cambia de dirección al llegar a los extremos (0% o 100% de 1000 pasos)
-    if (dutyCycle >= 1000 || dutyCycle <= 0) {
-      step = -step; 
+      // Movemos la posición del LED activo
+      activeLED += direction;
+
+      // Si llega a los extremos, rebotamos invirtiendo el sentido
+      if (activeLED >= 4) {
+        activeLED = 4;
+        direction = -1;
+      }
+      else if (activeLED <= 1) {
+        activeLED = 1;
+        direction = 1;
+      }
     }
 
-    HAL_Delay(15); // Controla la velocidad de desvanecimiento
+    // 3. SEÑALAMOS EL LED ACTIVO (Siempre forzamos al actual al 100%)
+    if (activeLED == 1) dutyLedA0 = 1000;
+    if (activeLED == 2) dutyLedA1 = 1000;
+    if (activeLED == 3) dutyLedA2 = 1000;
+    if (activeLED == 4) dutyLedA3 = 1000;
+
+    // 4. ESCRIBIMOS EN LOS REGISTROS DEL HARDWARE
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, dutyLedA0);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, dutyLedA1);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, dutyLedA2);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, dutyLedA3);
+
+    // 5. PEQUEÑO RETARDO BASE (Mantiene estable el refresco visual de los PWM)
+    HAL_Delay(10); 
   }
 }
+
 
 void SysTick_Handler(void)
 {
