@@ -1,0 +1,26 @@
+*
+
+# excepciones del PlaformIO
+!.gitignore
+
+!firmware/*
+!firmware/platformio.ini
+
+!firmware/src
+!firmware/src/*.c
+
+!firmware/include
+!firmware/include/*.c
+!firmware/include/*.h
+
+!firmware/lib
+!firmware/lib/*.h
+
+!Documentacion
+!Documentacion/*.ods
+!Documentacion/*.pdf
+!Documentacion/*.md
+
+
+!Datasheets
+!Datasheets/*.pdf
