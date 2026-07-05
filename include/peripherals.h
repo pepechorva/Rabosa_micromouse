@@ -32,7 +32,7 @@
 #define PWM_PIN_MASK                  (GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11)
 
 extern TIM_HandleTypeDef htim1;
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
 
 void MX_GPIO_Init(void);
 

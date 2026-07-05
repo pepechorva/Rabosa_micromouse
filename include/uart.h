@@ -3,6 +3,6 @@
 
 #include "peripherals.h"
 
-void MX_USART2_UART_Init(uint32_t baudrate);
+void MX_USART3_UART_Init(uint32_t baudrate);
 
 #endif

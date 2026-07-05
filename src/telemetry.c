@@ -11,6 +11,6 @@ void Send_Teleplot_DutyValues(uint16_t dutyA8, uint16_t dutyA9, uint16_t dutyA10
                 ">MB:%u\n",
                 dutyA8, dutyA9, dutyA10, dutyA11);
     if (len > 0) {
-        HAL_UART_Transmit(&huart2, (uint8_t *)buffer, (uint16_t)len, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&huart3, (uint8_t *)buffer, (uint16_t)len, HAL_MAX_DELAY);
     }
 }
