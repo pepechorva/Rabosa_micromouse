@@ -1,26 +1,31 @@
 *
 
-# excepciones del PlaformIO
+# mantener este archivo bajo control
 !.gitignore
 
-!firmware/*
+# permitir los ficheros del proyecto que sí queremos versionar
+!firmware/
 !firmware/platformio.ini
-
-!firmware/src
+!firmware/src/
 !firmware/src/*.c
 
-!firmware/include
-!firmware/include/*.c
+!firmware/include/
 !firmware/include/*.h
+!firmware/include/README
 
-!firmware/lib
-!firmware/lib/*.h
+!firmware/lib/
+!firmware/lib/README
 
-!Documentacion
+!firmware/test/
+!firmware/test/README
+
+!Documentacion/
 !Documentacion/*.ods
 !Documentacion/*.pdf
-!Documentacion/*.md
 
-
-!Datasheets
+!Datasheets/
 !Datasheets/*.pdf
+
+# ignorar artefactos generados por PlatformIO
+firmware/.pio/
+firmware/.vscode/
