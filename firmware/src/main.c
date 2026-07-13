@@ -8,6 +8,7 @@
 #include "app.h"
 #include "gpio.h"
 #include "pwm.h"
+#include "adc.h"
 
 int main(void)
 {
@@ -18,13 +19,14 @@ int main(void)
 
   MX_GPIO_Init();
   MX_TIM1_Init();
+  MX_ADC1_Init();
   MX_USART3_UART_Init(115200);
   MX_I2C1_Init();
 
   HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
   PWM_StartAll();
 
-  App_RunLoop();
+  App_RunLoop2();
 
   return 0;
 }

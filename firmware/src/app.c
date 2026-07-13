@@ -4,6 +4,7 @@
 #include "telemetry.h"
 #include "drv8833.h"
 #include "timers.h"
+#include "adc.h"
 
 void App_RunLoop(void)
 {
@@ -63,6 +64,32 @@ void App_RunLoop(void)
         else if (speed2 < 0) d2b = (uint16_t)((-speed2) * arr / 100);
 
         Send_Teleplot_DutyValues(d1a, d1b, d2a, d2b);
+
+        HAL_Delay(10);
+    }
+}
+
+void App_RunLoop2(void)
+{
+    while (1)
+    {
+        uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim1);
+        if (arr == 0U)
+        {
+            arr = 1U;
+        }
+
+        uint16_t adcA2 = ADC_ReadPin(ADC_PIN_A2);
+        uint16_t adcA3 = ADC_ReadPin(ADC_PIN_A3);
+        uint16_t adcA4 = ADC_ReadPin(ADC_PIN_A4);
+        uint16_t adcA5 = ADC_ReadPin(ADC_PIN_A5);
+
+        uint16_t dutyPWM1 = (uint16_t)((adcA2 * arr) / 4095U);
+        uint16_t dutyPWM2 = (uint16_t)((adcA3 * arr) / 4095U);
+        uint16_t dutyPWM3 = (uint16_t)((adcA4 * arr) / 4095U);
+        uint16_t dutyPWM4 = (uint16_t)((adcA5 * arr) / 4095U);
+
+        PWM_SetDuties(dutyPWM1, dutyPWM2, dutyPWM3, dutyPWM4);
 
         HAL_Delay(10);
     }
