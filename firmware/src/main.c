@@ -26,7 +26,12 @@ int main(void)
   HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
   PWM_StartAll();
 
-  App_RunLoop2();
+  //App_RunLoop();
+  //App_RunLoop2();
+  //App_RunLoop3();
+  //App_RunLoop4();
+  //App_RunLoop_Encoders();
+  App_RunLoop_CalcularReductora();
 
   return 0;
 }
