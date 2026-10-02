@@ -18,6 +18,9 @@
 !firmware/include/
 !firmware/include/*.h
 !firmware/include/README
+# La PLANTILLA si entra (lleva MY_SSID / MYPASSWRD). El fichero REAL, con la clave
+# de verdad, esta ignorado mas abajo: eso es lo que garantiza que no se publique.
+!firmware/include/*.h.example
 
 # ⚠️ Credenciales de la WiFi: NUNCA al repositorio (llevan la contraseña en claro).
 # Se copia de wifi_secrets.h.example, que sí está versionado.
