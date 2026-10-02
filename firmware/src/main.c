@@ -1,42 +1,88 @@
-//https://github.com/k3a/stm32f1-examples/blob/master/stm32cube-hal-blink.c
+/*
+ * main.c – Punto de entrada del firmware Rabosa MVR.
+ *
+ * La inicialización y el bucle principal se delegan en la
+ * capa APP (app/application.c), que orquesta todas las demás.
+ *
+ * Arquitectura por capas:
+ *   APP → CONTROL → FILTER → SENSOR → HAL → HW
+ */
+
 #include "peripherals.h"
-#include "systemclock.h"
-#include "timers.h"
-#include "uart.h"
-#include "i2c.h"
-#include "telemetry.h"
-#include "app.h"
-#include "gpio.h"
-#include "pwm.h"
-#include "adc.h"
+#include "hal/systemclock.h"
+#include "hal/gpio.h"
+#include "hal/uart.h"
 
 int main(void)
 {
-  HAL_Init();
-  SystemClock_Config();
+    HAL_Init();
+    SystemClock_Config();
+    LEDINBOARD_GPIO_CLK_ENABLE();
 
-  LEDINBOARD_GPIO_CLK_ENABLE();
+    /* La APP se encarga de inicializar todo y ejecutar el bucle */
+    extern void APP_InitAll(void);
+    extern void APP_Run(void);
 
-  MX_GPIO_Init();
-  MX_TIM1_Init();
-  MX_ADC1_Init();
-  MX_USART3_UART_Init(115200);
-  MX_I2C1_Init();
+    APP_InitAll();
 
-  HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
-  PWM_StartAll();
+    /* Prender el LED para indicar que arrancó */
+    HAL_GPIO_WritePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN, GPIO_PIN_RESET);
 
-  //App_RunLoop();
-  //App_RunLoop2();
-  //App_RunLoop3();
-  //App_RunLoop4();
-  //App_RunLoop_Encoders();
-  App_RunLoop_CalcularReductora();
+    //while(1){;}
 
-  return 0;
+    APP_Run();
+
+    /* Nunca debe llegar aquí */
+    return 0;
 }
 
 void SysTick_Handler(void)
 {
-  HAL_IncTick();
+    HAL_IncTick();
 }
+
+/**
+ * @brief Interrupción del botón MENU (PC14).
+ *
+ * Es lo que permite que el botón responda siempre, incluso dentro del bucle de una prueba de banco.
+ * El trabajo lo hace `hal/gpio.c`, que solo incrementa un contador.
+ */
+void EXTI15_10_IRQHandler(void)
+{
+    GPIO_MenuBtnIRQ_Handler();
+}
+
+/**
+ * @brief Interrupción de USART3: recepción de los comandos que llegan por telemetría.
+ *
+ * El trabajo lo hace `hal/uart.c`, que guarda el byte en un buffer circular. Aquí no se llama al HAL
+ * a propósito: su modo de recepción puede dejar un flag que repita la interrupción sin fin.
+ */
+void USART3_IRQHandler(void)
+{
+    UART_RxIRQHandler();
+}
+
+/**
+ * @brief Fallo del procesador (acceso inválido, división entre cero, pila rota…).
+ *
+ * Parpadea el LED onboard a ~3 Hz en vez de quedarse en un `while (1)` mudo: así se distingue «el
+ * firmware se ha colgado» de «la pantalla no responde», que se veían igual desde fuera.
+ */
+void HardFault_Handler(void)
+{
+    for (;;) {
+        HAL_GPIO_TogglePin(LEDINBOARD_GPIO_PORT, LEDINBOARD_PIN);
+        for (volatile uint32_t i = 0U; i < 400000U; i++) {
+            ;
+        }
+    }
+}
+
+void NMI_Handler(void) {}
+void MemManage_Handler(void) { while (1); }
+void BusFault_Handler(void)  { while (1); }
+void UsageFault_Handler(void){ while (1); }
+void SVC_Handler(void) {}
+void DebugMon_Handler(void) {}
+void PendSV_Handler(void) {}

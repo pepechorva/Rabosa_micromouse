@@ -25,15 +25,15 @@
 #error "Unsupported STM32 Family"
 #endif
 
+/* Incluye stdbool, stddef, string, math si se necesitan globalmente */
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#include <math.h>
+
+/* Pin del LED onboard */
 #define LEDINBOARD_PIN                GPIO_PIN_13
 #define LEDINBOARD_GPIO_PORT          GPIOC
 #define LEDINBOARD_GPIO_CLK_ENABLE()  __HAL_RCC_GPIOC_CLK_ENABLE()
-
-#define PWM_PIN_MASK                  (GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11)
-
-extern TIM_HandleTypeDef htim1;
-extern UART_HandleTypeDef huart3;
-
-void MX_GPIO_Init(void);
 
 #endif

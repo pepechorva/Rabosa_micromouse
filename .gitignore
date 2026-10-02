@@ -3,6 +3,12 @@
 # mantener este archivo bajo control
 !.gitignore
 
+# README del proyecto (solo el de la raíz; el resto de MD van por carpeta)
+!/README.md
+
+# workspace multi-raíz (opcional versionarlo con git)
+!*.code-workspace
+
 # permitir los ficheros del proyecto que sí queremos versionar
 !firmware/
 !firmware/platformio.ini
@@ -13,19 +19,115 @@
 !firmware/include/*.h
 !firmware/include/README
 
+# ⚠️ Credenciales de la WiFi: NUNCA al repositorio (llevan la contraseña en claro).
+# Se copia de wifi_secrets.h.example, que sí está versionado.
+firmware/include/wifi_secrets.h
+
 !firmware/lib/
 !firmware/lib/README
 
 !firmware/test/
 !firmware/test/README
+!firmware/test/*.c
+# Las herramientas del banco de PC (servidor del puente y analizador de traza) viven AQUI y no en
+# /tmp: /tmp se borra al reiniciar y con el se fueron el servidor y los scripts de medida.
+!firmware/test/*.py
 
+# capa APP
+!firmware/app/
+!firmware/app/*.c
+!firmware/app/*.h
+!firmware/app/README.md
+
+# capa CONTROL
+!firmware/control/
+!firmware/control/*.c
+!firmware/control/*.h
+
+# capa FILTER
+!firmware/filter/
+!firmware/filter/*.c
+!firmware/filter/*.h
+
+# capa SENSOR
+!firmware/sensor/
+!firmware/sensor/*.c
+!firmware/sensor/*.h
+
+# capa HAL
+!firmware/hal/
+!firmware/hal/*.c
+!firmware/hal/*.h
+
+# capa HW
+!firmware/hw/
+!firmware/hw/*.c
+!firmware/hw/*.h
+
+# README principal del firmware
+!firmware/README.md
+
+# ------------------------------------------------------------------
+# Documentación técnica (Markdown + ODS/PDF de origen)
+# ------------------------------------------------------------------
 !Documentacion/
+!Documentacion/*.md
 !Documentacion/*.ods
 !Documentacion/*.pdf
 
+# Documentación que vive junto al código (p. ej. firmware/sensor/encoders.md)
+!firmware/**/*.md
+
+# ------------------------------------------------------------------
+# Imágenes para la documentación (fotos de componentes, diagramas…)
+# ------------------------------------------------------------------
+!images/
+!images/**/
+!images/**/*.png
+!images/**/*.jpg
+!images/**/*.jpeg
+!images/**/*.webp
+!images/**/*.svg
+
+# ------------------------------------------------------------------
+# Personalizaciones del agente (instrucciones + skill del proyecto)
+# ------------------------------------------------------------------
+!.github/
+!.github/*.md
+!.github/skills/
+!.github/skills/**
+
+# ------------------------------------------------------------------
+# Datasheets de los componentes (y su índice)
+# ------------------------------------------------------------------
 !Datasheets/
 !Datasheets/*.pdf
+!Datasheets/*.md
 
-# ignorar artefactos generados por PlatformIO
+# ------------------------------------------------------------------
+# Artefactos generados por PlatformIO (no versionar)
+# ------------------------------------------------------------------
 firmware/.pio/
 firmware/.vscode/
+
+# ------------------------------------------------------------------
+# Parte mecánica
+#   - Los diseños propios de FreeCAD (.FCStd) SÍ se versionan
+#   - Los modelos de GrabCAD (ZIP/STEP, ~784 MB) NO: se citan en
+#     mechanical/CREDITOS-GrabCAD.md y se añadirán cuando estén los enlaces
+# ------------------------------------------------------------------
+!mechanical/
+!mechanical/*.md
+!mechanical/freecad/
+!mechanical/freecad/*.FCStd
+
+# GrabCAD y exportaciones a STEP: fuera por ahora (ver comentario de arriba)
+mechanical/step/
+mechanical/**/*.zip
+mechanical/**/*.step
+
+# ------------------------------------------------------------------
+# Obsidian: cuaderno personal → NUNCA al repositorio
+# (se borró el 2026-09-21; si vuelve a sincronizarse, queda ignorado a propósito)
+# ------------------------------------------------------------------
+Obsidian/
