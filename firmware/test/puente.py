@@ -29,7 +29,16 @@ import sys
 import time
 
 
-def teclado(cliente):
+def enviar(clientes, datos):
+    """Manda algo a todos los clientes vivos; el que falle se ignora (se recogera al leer)."""
+    for c, _ in clientes:
+        try:
+            c.sendall(datos)
+        except OSError:
+            pass
+
+
+def teclado(clientes):
     """Manda al robot lo que se escriba por la entrada estandar."""
     orden = sys.stdin.readline().strip()
 
@@ -50,66 +59,85 @@ def teclado(cliente):
         print(f"--> parpadeo de {veces} veces", flush=True)
 
         for _ in range(veces):
-            cliente.sendall(b"LED 1\n")
+            enviar(clientes, b"LED 1\n")
             time.sleep(0.25)
-            cliente.sendall(b"LED 0\n")
+            enviar(clientes, b"LED 0\n")
             time.sleep(0.25)
 
         return True
 
     # La consola del robot ejecuta al recibir `\n` o `\r`: con el salto de linea basta.
-    cliente.sendall((orden + "\n").encode("ascii", "replace"))
+    enviar(clientes, (orden + "\n").encode("ascii", "replace"))
     print(f"--> {orden}", flush=True)
     return True
 
 
 def servir(puerto, ruta_log):
-    """Bucle principal: un cliente cada vez, y vuelve a escuchar cuando se cae."""
+    """Bucle principal: acepta clientes **siempre**, y atiende a todos los que esten vivos.
+
+    ⚠️ **Aceptar aunque ya haya uno conectado no es un lujo, es la diferencia entre recibir y no
+    recibir nada.** Cuando el ESP se reinicia abre una conexion **nueva** sin cerrar la vieja, y el
+    socket viejo se queda **abierto y mudo** en el kernel (un zombi: `ss` lo muestra `ESTAB` con
+    `Recv-Q 0`). Con el diseno anterior —aceptar solo cuando no hubiera ningun cliente— esa conexion
+    zombi dejaba al servidor en `select()` para siempre: la telemetria se acumulaba **sin leer** en el
+    bufer del socket nuevo (visto en el banco el 2026-10-02: **17 030 B** en `Recv-Q`) y el registro
+    no crecia ni un byte. El sintoma enganya: el puente parece roto cuando el que no lee es este.
+    """
     servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     servidor.bind(("0.0.0.0", puerto))
-    servidor.listen(1)
+    servidor.listen(4)
 
     print(f"escuchando en 0.0.0.0:{puerto} (la telemetria va a {ruta_log})", flush=True)
 
     fichero = open(ruta_log, "a", buffering=1)
-    cliente = None
-    buffer = b""
+    clientes = []   # [(socket, bufer de la linea en curso)]
 
     while True:
-        if cliente is None:
-            cliente, direccion = servidor.accept()
-            buffer = b""
+        listos, _, _ = select.select([servidor, sys.stdin] + [c for c, _ in clientes], [], [])
+
+        if servidor in listos:
+            nuevo, direccion = servidor.accept()
             print(f"=== conectado desde {direccion[0]}:{direccion[1]} ===", flush=True)
 
             # Un salto de linea al conectar limpia cualquier `>` suelto que haya quedado del arranque.
-            cliente.sendall(b"\n")
+            nuevo.sendall(b"\n")
+            clientes.append((nuevo, b""))
 
-        listos, _, _ = select.select([sys.stdin, cliente], [], [])
+        vivos = []
 
-        if cliente in listos:
+        for c, bufer in clientes:
+            if c not in listos:
+                vivos.append((c, bufer))
+                continue
+
             try:
-                datos = cliente.recv(512)
+                datos = c.recv(4096)
             except OSError:
                 datos = b""
 
             if not datos:
                 print("el robot ha cerrado la conexion (el servidor sigue escuchando)", flush=True)
-                cliente.close()
-                cliente = None
+                c.close()
                 continue
 
-            buffer += datos
+            bufer += datos
 
-            while b"\n" in buffer:
-                cruda, buffer = buffer.split(b"\n", 1)
+            while b"\n" in bufer:
+                cruda, bufer = bufer.split(b"\n", 1)
                 linea = cruda.decode("ascii", "replace").strip()
 
                 if linea:
                     fichero.write(f"{time.time():.3f} {linea}\n")
 
-        if sys.stdin in listos and not teclado(cliente):
-            cliente.close()
+            vivos.append((c, bufer))
+
+        clientes = vivos
+
+        if sys.stdin in listos and not teclado(clientes):
+            for c, _ in clientes:
+                c.close()
+
             servidor.close()
             fichero.close()
             return

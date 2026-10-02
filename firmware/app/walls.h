@@ -31,8 +31,34 @@ typedef enum {
     WALL_N             /**< Número de paredes: no es una pared válida           */
 } Wall_t;
 
-/** @brief Umbral de arranque, en cuentas de `encendido − apagado` [0..4095]. */
-#define WALLS_UMBRAL_DEF       200
+/** @brief Umbrales de arranque, **uno por pared**, en cuentas de `encendido − apagado` [0..4095].
+ *
+ * ⚠️ **Uno por pared, y no uno común.** Cada receptor tiene su sensibilidad, su ángulo y su
+ * **acoplamiento directo** con su propio emisor, así que el `DIF` de reposo de cada canal es distinto.
+ * Con un umbral único bajo, las tres paredes leían «hay» siempre, y el *wall follower* habría dado
+ * media vuelta en cada celda sin avanzar nunca.
+ *
+ * ✅ **Medido en el laberinto el 2026-10-02** (prueba 21, robot en el pasillo):
+ *
+ * | Canal | Con pared delante | Sin pared (fondo) | Umbral |
+ * |:------|:-----------------:|:-----------------:|:------:|
+ * | **Frente** (R0) | **149** | **0** | **75** |
+ * | Derecha (R1) | — | 105 (medido con los lados al aire) | 2050 |
+ * | Izquierda (R2) | — | −3 (medido con los lados al aire) | 900 |
+ *
+ * El frontal queda **a mitad de camino** de los dos valores, con un margen de 2× por cada lado, y la
+ * histéresis de 60 sigue cabiendo (enchufa por encima de 105, apaga por debajo de 45).
+ *
+ * ⚠️ **Los laterales no ven paredes laterales**: apuntan hacia delante. Los números de la tabla son de
+ * cuando **no había nada a los lados**, y el `−3` es ruido puro (la medida es una resta). Se dejan
+ * altos para que digan «no hay» siempre, y da igual: el *wall follower* **no los usa**, decide solo con
+ * el frontal. Si algún día se reorientan los receptores, esto hay que medirlo otra vez.
+ *
+ * El orden de los `#define` es el de `Wall_t`: frente, derecha, izquierda.
+ */
+#define WALLS_UMBRAL_FRENTE_DEF      75
+#define WALLS_UMBRAL_DERECHA_DEF   2050
+#define WALLS_UMBRAL_IZQUIERDA_DEF  900
 
 /** @brief Margen entre el umbral de «hay» y el de «no hay», contra el parpadeo.
  *

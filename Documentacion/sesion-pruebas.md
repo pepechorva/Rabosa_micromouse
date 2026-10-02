@@ -21,6 +21,12 @@ cruce, sin tocar nada y sin `PARADO: ATASCO`**. Todo lo que sea más, premio.
 
 > **Antes de empezar:** reflashea (la fila 3 del *wall follower* y la prueba 12 cambiaron), y
 > **levanta el puente** (`TEST → VARIOS → WIFI AL PC`) con el servidor del PC ya escuchando.
+>
+> ⚠️ **Y el orden importa: flashea PRIMERO y levanta el puente DESPUÉS.** Al resetear el MCU el ESP
+> **sale del modo transparente**, así que **cada reflash tumba el puente**: el socket queda `ESTAB`
+> pero mudo (`ss -tn` lo enseña con `Recv-Q 0`) y **no llega ni un byte**, ni el `>BOOT:1`.
+> Consecuencia práctica: **no dar por hecha ninguna prueba que solo hable por telemetría hasta ver
+> el primer byte llegar**, o se repite el trabajo (el 2-oct se perdió una curva IR entera así).
 
 ---
 
@@ -31,7 +37,7 @@ cruce, sin tocar nada y sin `PARADO: ATASCO`**. Todo lo que sea más, premio.
 | | |
 |:--|:--|
 | **Qué hacer** | Robot quieto con las paredes del pasillo puestas. Encender y apagar la luz de la sala |
-| **Mirar** | `>R0_DIF`..`>R3_DIF` y `>R0_VAR`..`>R3_VAR` |
+| **Mirar** | **En la pantalla**, de dos en dos: `R0`/`R1` en una fila y `R2`/`R3` en la siguiente (recuerda: `R0` frontal dcho · `R1` lateral dcho · `R2` lateral izq · `R3` frontal izq). Con puente: `>R0_DIF`..`>R3_DIF` y `>R0_VAR`..`>R3_VAR` |
 | **Criterio** | La `DIF` de cada canal cambia **menos del ±10 %** al cambiar la luz |
 
 **Por qué primero**: la detección de paredes es **ON − OFF**. Si esa diferencia se mueve con la luz, todo
@@ -105,11 +111,20 @@ OK:PARA MENU:SALIR
 | `>WF_CELDAS` | Celdas recorridas |
 | `>WF_DEC` | Decisión tomada (1 avanza · 2 gira izq · 3 gira der · 4 vuelta) |
 | `>WF_FRENTE` `>WF_IZQ` `>WF_DER` | Las tres paredes **según el umbral** |
-| `>WF_ANG` | Rumbo acumulado |
+| `>WF_ANG` | Rumbo acumulado **según la odometría** |
+| `>WF_GYR` | Rumbo acumulado **según el giroscopio** (no depende de las ruedas) |
+| `>WF_GYROK` | 1 = el rumbo lo corrige el giroscopio · 0 = respaldo por odometría |
 
 > **`>WF_ANG` es el termómetro del residuo de los giros.** Cada giro se deja 15-19 mm y ±4-7°, y eso
 > **se suma**: si `ANG` crece sin parar, el robot irá descentrándose en el pasillo hasta ver una pared
 > que no existe. Es el fallo más probable y el que menos se ve leyendo el código.
+>
+> ⚠️ Y **`ANG` ya no es el único número**: desde el 2026-10-02 **el rumbo del avance y el ángulo de los
+> giros** los cierra el giroscopio, así que si `>WF_GYR` se queda cerca de cero mientras `>WF_ANG` se va,
+> el que se equivoca es la odometría (µm por cuenta o trocha), no el lazo. Medido el 02-oct: en el
+> **avance** los dos coinciden (+2,3° frente a −0,1°) y en el **giro** la odometría sobreestima un 44 %
+> (125° frente a 87°) — de ahí que el giro también se cierre con el giroscopio, y que el residuo de
+> posición de 15-19 mm por giro siga siendo el de siempre.
 
 ### Si para
 

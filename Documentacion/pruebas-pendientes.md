@@ -38,7 +38,7 @@ ajustes. Antes de dar por pendiente algo de aquí, **comprobar que su prueba sig
 | **µm por cuenta** | Prueba 7 **modo 2**: avanzar hasta 2800 pulsos y medir con la regla | Distancia ≈**660 mm** (hoja de cálculo: 235,6 µm/cuenta) · ajustar con `set_micrometers_per_count()` |
 | **Trocha efectiva $L$** | Girar el robot 10 vueltas sobre sí mismo (720° con la IMU) → $L = 2\pi d/\theta$ | Insumo para girar 90° con error < 2° |
 | **Radio de rodadura $r$** | Avanzar una distancia conocida y despejar de $d = r\theta$ | — |
-| **Offset del giroscopio** | Robot quieto 3 s, promediar GX/GY/GZ | Deriva < 1°/min |
+| **Offset del giroscopio** | ✅ **Automático (2026-10-02)**: lo promedia el firmware al entrar en las pruebas 20 y 21, con el robot parado (50 muestras) | Deriva < 1°/min |
 | **Pareja emisor↔receptor y $R_L$** | Prueba 15: encender cada emisor y ver qué canal cambia; ajustar $R_L$ hasta que el fondo no sature | Los 4 pares identificados y `DIF` > 50 cuentas a 10 cm |
 | **Curva de los sensores IR** | Prueba 17: medir el ADC a 3, 5, 8, 10 y 15 cm de una pared blanca | Tabla + interpolación, error < 1 cm |
 | **Calibrado de la batería** | `BAT CAL <mV>` con el multímetro (prueba 12) | Error < 2 % |

@@ -31,6 +31,9 @@ respuesta del motor) y la **20** (movimientos, con la orden `MOV`).
 | `PID LIST` | Publica las ganancias y la consigna del lazo de velocidad (prueba 18) |
 | `PID KP\|KI\|KD <valor>` | Cambia una ganancia **con el lazo corriendo** |
 | `PID VEL <mm/s>` | Cambia la consigna de velocidad de la prueba 18 |
+| `GYRO [LIST]` | Publica la **referencia y las siete ganancias del lazo de giro** |
+| `GYRO ODOM\|GIRO\|FUSION` | Elige con qué se cierra el **giro**: odometría, giroscopio o la media de los dos |
+| `GYRO KP\|KI\|KD\|ESC\|VMIN\|VARR\|VDPS <valor>` | Cambia una ganancia del giro **sin reflashear** |
 | `MOV OK\|UP\|DOWN [n]` | Lanza `n` movimientos en la **prueba 20** (primitivas de `app/motion.c`): celda de 180 mm o giros de 90° |
 | `TRACE` | Vuelca la **traza en RAM** del lazo por telemetría (`>TR_SET`, `>TR_IZQ`, `>TR_DER`, `>TR_FIN`) |
 | `LED <0\|1>` o `LED TOGGLE` | Enciende, apaga o conmuta el **LED de la placa** (PC13) y publica `>LED` |
@@ -167,6 +170,57 @@ tramo.
 
 > ⚠️ **No se guarda en Flash**: al reiniciar vuelven los valores de `PID_TEST_*_DEF`
 > (`app/application.c`).
+
+### Sintonía del lazo de giro (`GYRO`)
+
+Existe para **no reflashear**, y no es una comodidad: cada flasheo cuesta tres minutos y, además,
+**reinicia el robot y con él la calibración del giroscopio**, así que dos tandas seguidas no se podrían
+ni comparar. Con esta orden se cambia un número y se repite la maniobra en segundos.
+
+| Suborden | Qué toca | Arranque |
+|:---------|:---------|:--------:|
+| `GYRO` o `GYRO LIST` | Publica las siete y la referencia | — |
+| `GYRO ODOM\|GIRO\|FUSION` | Con qué se cierra el giro | `GIRO` |
+| `GYRO KP <mm/s por °>` | Proporcional al error de ángulo | 4,0 |
+| `GYRO KI <mm/s por (°·s)>` | Integral, con anti-windup a 30 mm/s | 0,0 |
+| `GYRO KD <mm/s por °/s>` | Amortiguación (frena según la velocidad angular) | 0,3 |
+| `GYRO ESC <adimensional>` | **Escala del giroscopio** | 1,20 |
+| `GYRO VMIN <mm/s>` | Mínimo de velocidad **con el robot girando** | 35,0 |
+| `GYRO VARR <mm/s>` | Mínimo de velocidad **para arrancar del todo** | 40,0 |
+| `GYRO VDPS <°/s>` | A partir de qué velocidad se considera que «ya rueda» | 0,0 |
+
+Contesta con `>GYR_KP`, `>GYR_KI`, `>GYR_KD`, `>GYR_ESC`, `>GYR_VMIN`, `>GYR_VARR`, `>GYR_VDPS` y
+`>GYRO_MODO`. Valor fuera de rango: `>CMD_ERR:3`. Parámetro desconocido: `>CMD_ERR:1`.
+
+> ✅ **Los siete valores medidos el 2026-10-02 están fijados en `app/motion.h`**, así que **un reinicio
+> no los pierde** — a diferencia de `PID`, que vuelve a sus `_DEF` al arrancar. La orden los cambia en
+> RAM, pero el punto de partida ya es el bueno.
+
+#### Cómo se diagnostica con estos números
+
+⚠️ **Lo primero: `>MOV_GYR` NO sirve para calibrar `ESC`.** El lazo cierra sobre `gyro_total`, **que ya
+está escalado**: al subir la escala el robot gira menos, pero el lazo sigue cortando cuando su cuenta
+llega a 90 y la telemetría **vuelve a decir 90**. La referencia se valida a sí misma, y con cualquier
+escala `>MOV_GYR` da 89-91° por esquina.
+
+Para la escala hace falta una referencia **externa**, y es **una cinta en el suelo**: cuatro giros de
+90° y la distancia del morro a la cinta, $d = 2L\sin(\Delta/2)$ con $L$ = 62 mm (0 mm son 360°,
+~47 mm son 405°).
+
+Con el ángulo en la mano, el síntoma dice **qué** ganancia tocar:
+
+| Síntoma | Qué es | Qué tocar |
+|:--------|:-------|:----------|
+| El error es **proporcional** al ángulo (90°→89°, 360°→356°) | Escala | `ESC` |
+| El error es **constante** en grados | Rozamiento o tolerancia de parada | `KP` |
+| El robot **llega y vuelve hacia atrás** | El D manda más que el P | bajar `KD` |
+| **No completa** el giro y una rueda se queda quieta | El mínimo no vence la fricción | subir `VMIN` |
+| **Cruza el objetivo** de largo | El mínimo es demasiado alto | bajar `VMIN` |
+
+> ⚠️ **Y una rueda dura invalida cualquier calibración.** Mientras una rueda arrastre, el robot pivota
+> **sobre ella** y el ángulo que acaba teniendo **no es función de ninguna ganancia**: el chasis gira 90
+> y el giroscopio lo mide bien, pero el morro acaba en otro sitio. Medido el 2026-10-02: el eje
+> izquierdo iba duro, y en cuanto se arregló **la medida empezó a responder de forma monótona a `ESC`**.
 
 ### Mando de las primitivas de movimiento (prueba 20)
 

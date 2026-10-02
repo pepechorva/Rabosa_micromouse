@@ -1,5 +1,6 @@
 #include "app/console.h"
 #include "app/application.h"
+#include "app/motion.h"
 #include "app/telemetry.h"
 #include "app/trace.h"
 #include "hal/uart.h"
@@ -485,6 +486,110 @@ static void console_comando_mov(char *resto)
 }
 
 /* ------------------------------------------------------------------ */
+/**
+ * @brief Publica la configuración del lazo de giro: referencia, ganancias y escala del giroscopio.
+ *
+ * Las mismas etiquetas que interesa tener en el registro de Teleplot junto a cada maniobra, para saber
+ * **con qué números** se hizo.
+ */
+static void console_publicar_gyro(void)
+{
+    TELEM_SendFloat("GYR_KP", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_KP));
+    TELEM_SendFloat("GYR_KI", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_KI));
+    TELEM_SendFloat("GYR_KD", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_KD));
+    TELEM_SendFloat("GYR_ESC", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_ESCALA));
+    TELEM_SendFloat("GYR_VMIN", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_VMIN));
+    TELEM_SendFloat("GYR_VARR", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_VARR));
+    TELEM_SendFloat("GYR_VDPS", MOTION_GetGiroGanancia(MOTION_GIRO_GANANCIA_VDPS));
+    TELEM_SendInt("GYRO_MODO", (int32_t)MOTION_GetModoGiro());
+}
+
+/**
+ * @brief Orden `GYRO`: elige con qué se cierra el lazo de **giro** y sintoniza sus ganancias.
+ *
+ * Dos usos, y los dos existen para **medir sin reflashear**:
+ *
+ * - `GYRO ODOM|GIRO|FUSION` elige la referencia. Girar 90° a un lado y 90° al otro tiene que devolver
+ *   el robot al mismo sitio, y el error de cierre con cada referencia dice cuál acierta.
+ * - `GYRO KP|KI|KD|ESC <valor>` cambia las ganancias y la escala del giroscopio. Es lo que permite
+ *   repetir una tanda de cuatro giros con otra sintonía **en segundos**: un flasheo cuesta tres minutos
+ *   y, además, **reinicia el robot y con él la calibración del giroscopio**, así que las dos tandas no
+ *   se podrían ni comparar.
+ *
+ * @param resto Lo que queda de la orden tras la palabra `GYRO`
+ */
+static void console_comando_gyro(char *resto)
+{
+    char                   *token    = console_token(&resto);
+    char                   *valor_tx;
+    float                   valor;
+    Motion_GiroGanancia_t   cual;
+
+    if (token == NULL) {
+        console_publicar_gyro();
+        return;
+    }
+
+    console_mayusculas(token);
+
+    if (strcmp(token, "LIST") == 0) {
+        console_publicar_gyro();
+        return;
+    }
+
+    if (strcmp(token, "ODOM") == 0) {
+        MOTION_SetModoGiro(MOTION_GIRO_ODOMETRIA);
+        TELEM_SendInt("GYRO_MODO", (int32_t)MOTION_GetModoGiro());
+        return;
+    }
+
+    if (strcmp(token, "GIRO") == 0) {
+        MOTION_SetModoGiro(MOTION_GIRO_GIROSCOPIO);
+        TELEM_SendInt("GYRO_MODO", (int32_t)MOTION_GetModoGiro());
+        return;
+    }
+
+    if (strcmp(token, "FUSION") == 0) {
+        MOTION_SetModoGiro(MOTION_GIRO_FUSION);
+        TELEM_SendInt("GYRO_MODO", (int32_t)MOTION_GetModoGiro());
+        return;
+    }
+
+    if (strcmp(token, "KP") == 0) {
+        cual = MOTION_GIRO_GANANCIA_KP;
+    } else if (strcmp(token, "KI") == 0) {
+        cual = MOTION_GIRO_GANANCIA_KI;
+    } else if (strcmp(token, "KD") == 0) {
+        cual = MOTION_GIRO_GANANCIA_KD;
+    } else if (strcmp(token, "ESC") == 0) {
+        cual = MOTION_GIRO_GANANCIA_ESCALA;
+    } else if (strcmp(token, "VMIN") == 0) {
+        cual = MOTION_GIRO_GANANCIA_VMIN;
+    } else if (strcmp(token, "VARR") == 0) {
+        cual = MOTION_GIRO_GANANCIA_VARR;
+    } else if (strcmp(token, "VDPS") == 0) {
+        cual = MOTION_GIRO_GANANCIA_VDPS;
+    } else {
+        TELEM_SendInt("CMD_ERR", 1);   /* 1 = parámetro desconocido */
+        return;
+    }
+
+    valor_tx = console_token(&resto);
+
+    if ((valor_tx == NULL) || (console_texto_a_float(valor_tx, &valor) == 0U)) {
+        TELEM_SendInt("CMD_ERR", 2);   /* 2 = valor no válido */
+        return;
+    }
+
+    if (MOTION_SetGiroGanancia(cual, valor) == 0U) {
+        TELEM_SendInt("CMD_ERR", 3);   /* 3 = rechazado (fuera de rango) */
+        return;
+    }
+
+    console_publicar_gyro();
+}
+
+/* ------------------------------------------------------------------ */
 static void console_ejecutar(char *orden)
 {
     char *token = console_token(&orden);
@@ -507,6 +612,11 @@ static void console_ejecutar(char *orden)
 
     if (strcmp(token, "MOV") == 0) {
         console_comando_mov(orden);
+        return;
+    }
+
+    if (strcmp(token, "GYRO") == 0) {
+        console_comando_gyro(orden);
         return;
     }
 

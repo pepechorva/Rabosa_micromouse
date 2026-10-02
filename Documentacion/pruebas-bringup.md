@@ -99,14 +99,14 @@ pantalla OLED** (sin recompilar) y se sale con el botón **MENU**.
 | 12 | `App_Test_Bateria()` | **Batería 2S**: pack (PB0, **22 kΩ/10 kΩ**), celda 1 (PB1, **3k9/10 kΩ** — cada canal con su $k$) y celda 2 por resta, + **aviso** por LED y pantalla | `>VBAT`, `>VCELL1`, `>VCELL2` coherentes con el multímetro (±3 %) y `>VBAT_ESTADO`; la OLED muestra **el estado y las tres tensiones** (`BATERIA OK` / `TOTAL` / `CEL1` / `CEL2`); incluye el **calibrado del divisor del pack** contra el multímetro (`BAT CAL <mV>`) | ✅ Pack (7,77 V) y las dos celdas (3,80 / 3,97 V) |
 | 13 | `App_Test_ADC_Soldadura()` | **Chequeo de la soldadura del ADC**: los 4 receptores IR (PA2–PA5) y los 2 divisores de batería (PB0/PB1) | Por canal `>ADC_IRn` y `>ADC_DIFn` (los 4 emisores encendidos menos apagados) + veredicto `>ADC_ESTn` (`OK/MUDO/SATURADO/FLOJO/NO USADA`); `>ADC_B0`/`>ADC_B1` con `>ADC_EST_B0`/`>ADC_EST_B1`. Se repite a 2 Hz | ✅ 4 receptores y PB0 `OK` (falta luz controlada) |
 | 14 | `App_Test_EmisoresIR()` | Los 4 emisores IR por GPIO (**PB3/PB4/PB5/PB8**) con el JTAG desactivado, conmutados por **BC337** | `>IR_LED:1..4` uno a uno, **`5` = los cuatro** y `0` = apagados (1 s por paso); cada LED se ve con la **cámara del móvil** y caen ≈1,65 V en sus **22 Ω** (≈75 mA; los cuatro ≈300 mA) | ❌ Pendiente (implementada 2026-09-30) |
-| 15 | `App_Test_IR_Receptores()` | **Pareja emisor↔receptor** (matriz 4×4) y elección de $R_L$: fondo de luz ambiente frente a reflejo | Enciende cada emisor (`>IR_EMISOR:1..4`) y publica `>IRn_OFF`, `>IRn_ON` y `>IRn_DIF` de los cuatro receptores; ciclo de 1 s | ✅ Pareja medida: **R0←IR3 · R1←IR1 · R2←IR2 · R3←IR0** (falta el 10/10) |
-| 16 | `App_Test_IR_Modulado()` | **Lectura diferencial ON−OFF por software**: cancela la luz ambiente | `>IRn_DIF` estable (±10 %) y `>IRn_VAR` (dispersión de la diferencia, en %) al encender y apagar la luz de la sala; 8 pares por canal a 4 Hz, con la pareja de `ir_pareja_emisor[]` | ❌ Pendiente (implementada 2026-09-30) |
-| 17 | `App_Test_CalibracionIR()` | **Curva distancia↔ADC** (3/5/8/10/15 cm) y umbral de detección de pared | Guiada por OLED: `UP`/`DOWN` eligen canal, `OK` congela 64 muestras → `>IR_CAL_CANAL`, `>IR_CAL_CM` e `>IRn_CAL`; al completar los 4 canales publica la tabla y estima en vivo `>IRn_CM` | ❌ Pendiente (implementada 2026-09-30) |
+| 15 | `App_Test_IR_Receptores()` | **Pareja emisor↔receptor** (matriz 4×4) y elección de $R_L$: fondo de luz ambiente frente a reflejo | Enciende cada emisor en su turno (`>IR0`..`>IR3`, 1 = encendido) y publica `>R0`..`>R3` con las **cuentas crudas** del ADC de los cuatro receptores; cada emisor dura 2 s | ✅ Pareja medida: **R0←IR3 · R1←IR1 · R2←IR2 · R3←IR0** (falta el 10/10) |
+| 16 | `App_Test_IR_Modulado()` | **Lectura diferencial ON−OFF por software**: cancela la luz ambiente | `>R0_OFF`/`>R0_ON`/`>R0_DIF` (encendido − apagado) y `>R0_VAR` (dispersión de la diferencia, en %): el `DIF` debe aguantar ±10 % al encender y apagar la luz de la sala. 8 pares por canal, los cuatro canales cada 250 ms, con la pareja de `ir_pareja_emisor[]` | ❌ Pendiente (implementada 2026-09-30) |
+| 17 | `App_Test_CalibracionIR()` | **Curva distancia↔ADC** (3/5/8/10/15 cm) y umbral de detección de pared | Guiada por OLED: `UP`/`DOWN` eligen canal, `OK` congela 64 muestras → `>IR_CAL_CANAL`, `>IR_CAL_CM` y `>R0_CAL`; al completar los 4 canales publica la tabla y estima en vivo `>R0_CM`. Enciende el emisor del canal en curso (`ir_cal_emisor()`). ⚠️ **Hasta el 2-oct medía con los emisores apagados** (fondo de sala) ⇒ las curvas hechas antes no valen | ❌ Pendiente (implementada 2026-09-30) |
 | 18 | `App_Test_PID()` | **Lazo de velocidad por rueda** (capa CONTROL): rampa de consigna + PID → duty | `>PID_SET` frente a `>VEL_IZQ`/`>VEL_DER` y `>DUTY_IZQ`/`>DUTY_DER`; escalón **sin sobreimpulso > 20 %** y las dos ruedas a la misma consigna. Las ganancias se ajustan **en caliente** con la orden `PID` | ⚠️ **Lógica validada en simulación (PC)** · pendiente de sintonizar en hardware |
 | 19 | `App_Test_Odometria()` | **Odometría diferencial** (capa FILTER): incrementos de arco de cada rueda → pose $(x, y, \theta)$ | `>ODO_X`, `>ODO_Y` (mm), `>ODO_TH` (°), `>ODO_D` (camino), `>ODO_UM_L/R` (µm de cada rueda) y `>ODO_TROCHA_MM`; empujando el robot recto, X sube y θ no se mueve. **OK** pone el origen a cero | ✅ **Ejecutada el 2026-10-01**: recta de 1 m con −0,3 % de error y giro de 90° corregido con $L$ = 77,6 mm (era 83,6) |
-| 20 | `App_Test_Movimiento()` | **Primitivas de movimiento** (`app/motion.c`, capa APP): avanzar una distancia y girar un ángulo con lazo cerrado sobre la odometría | `>MOV_D` (camino), `>MOV_X`/`>MOV_Y` (posición), `>MOV_ANG` y los errores `>MOV_E_D`/`>MOV_E_ANG`; **OK** avanza 180 mm, **UP/DOWN** giran ±90° y por consola hay `MOV OK\|UP\|DOWN\|BACK [n]`. Criterios: celda < 5 mm y giro < 2° | ✅ **Medida el 2026-10-01**: celdas de **177,7–181,1 mm** (error ≤ 2,3 mm ✓), giros de **83,3° / 90,7°** (⚠️ criterio < 2°) y la deriva de rumbo al avanzar en **+0,2°** por celda |
-| 21 | `App_Test_Paredes()` | **Detección de paredes** (`app/walls.c`): medidas de los receptores → «hay pared / no hay» con umbral ajustable | `>WALL_n`, `>WALL_n_UMB` y `>WALL_n_HAY`; la medida es `encendido − apagado`, así que **no depende de la luz de la sala**. **OK** cambia de pared y **UP/DOWN** mueven su umbral | ⚠️ Escrita el 2026-10-01, pendiente de ajustar contra un laberinto real |
-| 22 | `App_Test_WallFollower()` | **Algoritmo de la mano** (`app/wall_follower.c`, capa APP): decisión por celda con las tres paredes | `>WF_CELDAS`, `>WF_DEC`, `>WF_FRENTE`/`>WF_IZQ`/`>WF_DER`, `>WF_X`/`>WF_Y`/`>WF_ANG` y `>WF_ATASCO`; **OK** arranca o para · **UP/DOWN** eligen la mano · **MENU** sale. Se para sola por MENU, por tope de celdas o por **atasco** | ⚠️ Escrita el 2026-10-01, pendiente de probar en un laberinto (no vale la mesa) |
+| 20 | `App_Test_Movimiento()` | **Primitivas de movimiento** (`app/motion.c`, capa APP): avanzar una distancia y girar un ángulo con lazo cerrado sobre la odometría; el rumbo al avanzar lo corrige el **giroscopio** | `>MOV_D` (camino), `>MOV_X`/`>MOV_Y` (posición), `>MOV_ANG`, `>MOV_GYR` (ángulo del giroscopio) con `>MOV_GYROK`, y los errores `>MOV_E_D`/`>MOV_E_ANG`; **OK** avanza 180 mm, **UP/DOWN** giran ±90° y por consola hay `MOV OK\|UP\|DOWN\|BACK [n]`. Criterios: celda < 5 mm y giro < 2° | ✅ **Medida el 2026-10-01**: celdas de **177,7–181,1 mm** (error ≤ 2,3 mm ✓), giros de **83,3° / 90,7°** (⚠️ criterio < 2°) y la deriva de rumbo al avanzar en **+0,2°** por celda |
+| 21 | `App_Test_Paredes()` | **Detección de paredes** (`app/walls.c`): medidas de los receptores → «hay pared / no hay» con umbral ajustable | `>WALL_n`, `>WALL_n_UMB` y `>WALL_n_HAY`; la medida es `encendido − apagado`, así que **no depende de la luz de la sala**. **OK** cambia de pared y **UP/DOWN** mueven su umbral | ✅ **Medida en el laberinto el 2026-10-02**: frontal **149** con pared y **0** sin ella ⇒ umbral **75**. Los laterales dan 105 y −3 **con los lados al aire**: no ven paredes laterales |
+| 22 | `App_Test_WallFollower()` | **Algoritmo de la mano** (`app/wall_follower.c`, capa APP): decisión por celda con las paredes | `>WF_CELDAS`, `>WF_DEC`, `>WF_FRENTE`/`>WF_IZQ`/`>WF_DER`, `>WF_X`/`>WF_Y`/`>WF_ANG`, **`>WF_GYR`**/`>WF_GYROK` y `>WF_ATASCO`; **OK** arranca o para · **UP/DOWN** eligen la mano · **MENU** sale. Se para sola por MENU, por tope de celdas o por **atasco** | ✅ **Corrida el 2026-10-02** en el laberinto: 3 celdas rectas seguidas (179, 177 y 174 mm) con el corrector de rumbo por giroscopio (1,5 → 3,4 → 11,4° frente a 30-41° del corrector viejo) y giro en el sitio al chocar |
 | 23 | `App_Test_ESP8266()` | **Módulo ESP8266 por AT** (`hal/esp8266.c`, capa HAL): `AT`, `AT+CWMODE=1` y `AT+CWLAP` | ⚠️ **Sin telemetría a propósito** (el módulo ocupa la USART3): el resultado sale **solo en la pantalla**, como un veredicto **`CONECTADO` / `SIN ESP`**. **OK** lanza la secuencia · **MENU** sale | ⚠️ Escrita el 2026-10-01, pendiente de probar con el módulo cableado |
 | 24 | `App_Test_Puente()` | **Puente WiFi** (`hal/esp8266.c` + `app/console.c`): la **USART3 entera por TCP**, la telemetría hacia fuera y las órdenes hacia dentro | ⚠️ Mientras está arriba **no hay telemetría por el cable** (el módulo ocupa la USART3): sale por el socket. Latido `>PUENTE_T` a **1 Hz** para saber que el enlace vive, y la pantalla pone `PUENTE` / `SIN CABLE` / `MENU:SALIR` | ✅ **Ejecutada el 2026-10-02**: telemetría y órdenes en los **dos sentidos** (umbrales de `BAT LIST` y `>VBAT:7.394` leídos por WiFi) con el robot en **192.168.2.198** |
 
@@ -233,7 +233,7 @@ void App_Test_XXX(void)
 | `micrometers_per_count` | Marcar 1 m, avanzar en recta, `1e6 / pulsos_totales` | Llamada a `set_micrometers_per_count()` |
 | **Pareja emisor↔receptor y $R_L$** | Prueba 15: encender un emisor y ver qué canal cambia; ajustar $R_L$ hasta que el fondo con la luz de la sala no sature | `hardware.md` §4.4 |
 | **Curva distancia IR** | Prueba 17: medir el ADC a 3, 5, 8, 10 y 15 cm de una pared blanca → tabla + interpolación | `filter/adc_filter.c` |
-| Offset del giroscopio | Dejar el robot estático 3 s, promediar GX/GY/GZ y restar | `sensor/imu.c` |
+| Offset del giroscopio | Robot estático: lo promedia solo `MOTION_Init()` (50 muestras) al entrar en las pruebas 20 y 21 | `app/motion.c` → `motion_gyro_calibrar()` |
 | **Divisores de batería** | Prueba 12 + multímetro: comparar `>VBAT`/`>VCELL1` con el multímetro y ajustar con **`BAT CAL <mV>`** si hay diferencia | `sensor/battery.c` |
 
 ---
@@ -1001,8 +1001,13 @@ términos y se cancela.
 2. **Prueba de fuego**: encender y apagar la luz de la habitación con el robot quieto apuntando a
    la pared. El `DIF` debe aguantar **±10 %** (y `VAR` quedarse por debajo de 10).
 
-**En la pantalla** sale el `DIF` y el `VAR` de los cuatro canales (`R0 DIF 140 VAR 3`…) y nada más,
-sin contador de latidos: son los dos números que deciden si la prueba pasa.
+**En la pantalla** salen los cuatro `DIF` **de dos en dos** (`R0 1250  R1 1240` / `R2 1350  R3 1600`) y el
+aviso de salida, sin contador de latidos. El **`VAR` no se pinta**: para seguir el `DIF` estorba, y
+como indicador sigue publicándose por telemetría.
+
+> ⚠️ **Dos canales por fila, y no uno.** En 128×32 solo hay **4 filas (0..3)**: con una fila por canal
+> el `R3` caía en la fila 4 y `OLED_Print()` **sale sin dibujar nada, en silencio**. Así estuvo hasta el
+> 2-oct: en la pantalla solo aparecían R0, R1 y R2.
 
 > ☀️ **Se hace con luz controlada** (sala encendida y apagada, pared en sombra). Con **sol directo**
 > sobre la pared el fondo sube y el `DIF` se queda corto: daría un suspenso falso.
@@ -1027,6 +1032,16 @@ Procedimiento **guiado con botones** (es el primer sitio donde se aprovecha el m
 4. Repetir para **5, 8, 10 y 15 cm**.
 5. Al terminar los 4 canales, publica la tabla completa y pasa a modo vivo: `>Rn_CM` con la
    distancia estimada de cada receptor (interpolación lineal entre los 5 puntos).
+
+> 💡 **El emisor del canal que se está calibrando está encendido.** Lo enciende `ir_cal_emisor(canal)`
+> (el emisor que empareja `ir_pareja_emisor[]`): al entrar en la prueba, al cambiar de canal con
+> `UP`/`DOWN`, **antes de congelar cada punto** y, en el modo vivo, conmutando por canal antes de cada
+> lectura. Como solo puede lucir **uno a la vez**, el modo vivo hace los cuatro seguidos. Al salir con
+> `MENU` se apagan los cuatro.
+>
+> ⚠️ **Hasta el 2-oct la prueba no encendía ningún emisor** y medía el **fondo de la sala**: sus
+> `>Rn_CAL` no dependían de la distancia, así que **las curvas hechas con ella no valen y hay que
+> repetirlas**. Ver la fila del 2026-10-02 en [estado-del-proyecto.md](./estado-del-proyecto.md).
 
 | Distancia | Qué se espera |
 |:---------:|:--------------|
@@ -1387,12 +1402,277 @@ se prueba lo que de verdad importa: que los errores **no se acumulen**.
 | 2 | `ANG` — ángulo girado · `E` — error acumulado |
 | 3 | `OK:180 UP:90 DN:90` — el mapa de botones |
 
-Telemetría: `>MOV_D`, `>MOV_ANG`, `>MOV_E_D`, `>MOV_E_ANG` y `>MOV_OK` (1 si el último llegó a
-tolerancia).
+Telemetría: `>MOV_D`, `>MOV_ANG`, `>MOV_E_D`, `>MOV_E_ANG`, `>MOV_GYR`, `>MOV_GYROK` y `>MOV_OK`
+(1 si el último llegó a tolerancia).
 
 > ⚠️ **Los cinco valores se publican SOLO al terminar el movimiento**, no durante. Mientras el robot
 > avanza (~2,2 s) la pantalla y la telemetría se quedan **congeladas** en el resultado anterior: es el
 > precio de que las primitivas sean bloqueantes.
+
+### El rumbo al avanzar lo corrige el **giroscopio** (2026-10-02)
+
+Hasta el 2026-10-02 la corrección de rumbo usaba la **odometría**: la diferencia de arcos de las dos
+ruedas. El problema no era la medida, sino que **el error se heredaba**: cada celda arrancaba con la
+referencia puesta en el rumbo que el robot tuviera en ese instante, así que lo que un tramo no
+corregía lo arrastraba el siguiente y el desvío **crecía** en vez de apagarse.
+
+Medido el 2026-10-02 en el pasillo, con `>WF_DEC` = avanzar en todas las celdas:
+
+| `>WF_CELDAS` | 0 | 1 | 2 | 3 | 3 (parado) |
+|:-------------|:--|:--|:--|:--|:--|
+| `>WF_ANG` | 44,3 | 30,3 | 26,3 | 29,9 | **41,1** |
+
+Ahora la referencia la da el **giroscopio** (`>MOV_GYR`), que mide el giro **de verdad** —no lo deduce
+de las ruedas— y se pone a **cero al empezar cada avance**. El convenio de signo es el mismo que el de
+$\theta$ (positivo = izquierda), así que el resto del lazo no cambia.
+
+| | Odometría (respaldo) | Giroscopio |
+|:--|:--|:--|
+| De dónde sale el giro | Diferencia de arcos de las ruedas | Sensor inercial |
+| Constante de tiempo del lazo | $\tau = L/(2K_p)$ = **12,9 s** | **3,2 s** |
+| Lo que corrige en una celda de 1 s | 7 % del desvío | el **27 %** |
+| Empieza a saturar a partir de | — | **5°** de error |
+| `MOTION_RUMBO_KP` | 3 | — |
+| `MOTION_GYRO_KP` | — | 40 |
+
+#### Lo medido el 2026-10-02 (robot en el suelo, `>MOV_GYR` como testigo)
+
+| Movimiento | Odometría | Giroscopio | Veredicto |
+|:-----------|:---------:|:----------:|:----------|
+| **Avance** de 180 mm | **+2,3°** | **−0,1°** | ✅ **va recto** (los dos coinciden) |
+| **Giro** de 90° | **+125,4°** | **+87,1°** | ⚠️ la odometría **sobreestima un 44 %** |
+
+De ahí salen las dos conclusiones que gobiernan el diseño del lazo:
+
+1. **En el avance la odometría es buena**, y el giroscopio la confirma. La deriva de **+2,3° en 180 mm**
+   (1,3 %) está cerca del **+0,2°** medido el 2026-10-01 con el corrector viejo ⇒ **el zigzag del pasillo
+   no era el robot**: era el corrector persiguiendo una medida que no era la del giro.
+2. **En el pivote la odometría sobreestima un 44 %.** Girar sobre el centro obliga a las ruedas a
+   **deslizar lateralmente** para pivotar, así que cuentan más arco del que el robot gira de verdad. Con
+   la odometría como referencia, `MOTION_Girar(90)` corta cuando marca 90° y el robot se queda en
+   **62°**: un **30 % menos** en cada esquina, y eso el *wall follower* lo acumula.
+
+> ⛔ **La tentación de arreglarlo tocando la trocha no vale**: el factor 1,44 es del **pivote**, y en el
+> avance la odometría es correcta. Un solo parámetro no puede servir para los dos. La referencia tiene
+> que ser el sensor que **no depende de las ruedas**.
+>
+> ⇒ Desde el 2026-10-02 **el ángulo del giro también se cierra con el giroscopio** (`MOTION_Girar()`),
+> no solo el rumbo del avance. Si la IMU no responde, el giro vuelve al respaldo por odometría.
+
+#### El zigzag: por qué la ganancia se bajó de 40 a 12
+
+Con $K_p = 40$ y tope de 60 mm/s, la corrección **saturaba con solo 1,5° de error**:
+
+$$e_{sat} = \frac{60\ \text{mm/s}}{40\ \text{mm/s por grado}} = 1{,}5°$$
+
+Y un lazo saturado no es proporcional: es un **lazo de relé**, y un relé con retardo **oscila
+siempre**. El retardo lo pone la inercia del robot (tarda unos 0,2 s en cambiar de velocidad angular),
+que da una amplitud de oscilación de $\dot\theta_{max} \times T \approx 88°/\text{s} \times 0{,}25\ \text{s}$
+≈ **20°** — mucho más que la propia corrección que se quiere hacer.
+
+Medido en el laberinto el 2026-10-02: el robot **hacía zigzag** (lo vio el usuario) y el desvío **crecía
+celda a celda** (1,5 → 3,4 → 11,4°), que es divergencia y no un desvío constante.
+
+> ✅ **El criterio no es «que corrija rápido», es «que no sature»**: $e_{sat} = \text{tope}/K_p$ tiene
+> que quedar **por encima del desvío que se ve dentro de una celda**. Con $K_p = 12$ satura a 5° y el
+> lazo trabaja en su tramo lineal, que es el único que amortigua.
+>
+> ⚠️ **Subir el tope no es la solución**: agranda el tramo saturado y la amplitud del zigzag. Si hay
+> que corregir desvíos mayores, se **baja la ganancia**.
+
+#### El sesgo del giroscopio: el fallo del 2026-10-02
+
+El **sesgo** es la lectura del giroscopio con el robot quieto, que debería ser cero y no lo es. Se mide
+solo, promediando 50 muestras al **entrar** en las pruebas 20 y 22. **Si en ese medio segundo están
+moviendo el robot, el sesgo sale falseado** en decenas de °/s, y el lazo integra ese error **todo el
+rato**:
+
+- El integrador crece solo ⇒ el lazo cree que el robot se desvía ⇒ **corrige a tope (±60 mm/s) sin parar**.
+- Medido: el robot **chocó contra la pared antes de cruzar la primera celda** y el giroscopio acumuló
+  **272° y luego 257° más** mientras el robot estaba **parado, empujando** (lo vio el usuario).
+
+⇒ Dos protecciones, desde el 2026-10-02:
+
+| | Qué hace |
+|:--|:--|
+| **Tanda con dispersión** | La calibración mira la **varianza** de las 50 muestras: si supera 2 °/s es que están moviendo el robot ⇒ se tira la tanda y se repite (hasta 3 veces) |
+| **Refinamiento en el asentamiento** | Al final de cada movimiento el robot está **frenado**, y ese es el único momento en que se sabe que no gira: se aprovecha el bucle que ya existe para volver a medir el sesgo y corregirlo con un filtro lento |
+
+> 📌 **Y por eso el arreglo se autocura**: aunque la calibración inicial salga mal, el sesgo converge
+> en los primeros movimientos y el robot se endereza solo.
+>
+> ⚠️ **Al entrar en la prueba 20 o 22, deja el robot quieto dos segundos.** Si lo estás colocando, la
+> calibración lo detecta y reintenta; si los tres intentos salen sucios, el primer movimiento irá
+> torcido y el segundo ya no.
+
+> ⚠️ **Y el refinamiento tiene su propia trampa, aprendida el mismo día**: las muestras hay que tomarlas
+> en la **segunda mitad** del asentamiento. Al frenar de golpe el robot **todavía gira por inercia**
+> unos milisegundos, y una muestra tomada ahí se lleva el giro del movimiento al sesgo. Medido: con las
+> muestras desde el primer milisegundo el sesgo quedó en **16 °/s** y el giroscopio **dejó de ver la
+> media vuelta** (marcó 3,5° donde el robot giró 146°) ⇒ como el giro se cierra con el giroscopio, el
+> lazo siguió pidiendo girar hasta agotar los 8 s y el robot acabó **parado empujando contra la pared**
+> (`>WF_ATASCO:1`). De ahí, además, el **tope de paso** de cada refinamiento: 5 °/s, para que una
+> medida suelta no pueda darle la vuelta al sesgo.
+>
+> ✅ **Y ahora se puede VER**: `>MOV_SESGO` y `>WF_SESGO` publican el sesgo en uso. **Por encima de
+> 1 °/s con el robot quieto es un fallo**, no una curiosidad.
+>
+> 📌 **La firma que no engaña**: si el robot está **parado empujando** contra una pared y el giroscopio
+> **acumula grados**, el sesgo está mal. Un giroscopio sano con el robot quieto integra **cero**.
+
+#### El sesgo tiene **deriva térmica** (medido el 2026-10-02)
+
+| Momento | `>WF_SESGO` |
+|:--------|:-----------:|
+| Robot recién encendido (chip frío) | **−6,5 °/s** |
+| Dos movimientos después | −2,4 °/s |
+| Ya caliente | **≈−1 °/s** |
+
+⇒ **Calibrar una sola vez al entrar no puede funcionar**: el sesgo **cambia con la temperatura**. De ahí
+las dos decisiones de esa noche:
+
+1. **El refinamiento no filtra**: toma la muestra del asentamiento (robot frenado, y solo la segunda
+   mitad, cuando ya no queda inercia) **tal cual**. Un filtro lento iría **persiguiendo** un blanco que
+   se mueve.
+2. **Con el sesgo fuera de rango, el lazo NO usa el giroscopio.** `MOTION_GYRO_SESGO_MAX_USABLE` = **3
+   °/s**: por encima manda el **respaldo por odometría** —giros cortos, pero el robot **no se atasca**— y
+   en cuanto el sesgo se sanea, el avance y los giros pasan al giroscopio solos, sin intervención.
+
+> ⚠️ **Un sesgo de 6,5 °/s son 13° de desvío falso por celda** (2 s), y el lazo los convierte en
+> corrección **real**: el robot se va de lado hasta chocar. **Un giroscopio mal calibrado es peor que no
+> tenerlo**, y por eso el umbral de uso no es un lujo.
+>
+> 📌 **Y es un fallo que solo se ve en el número**: `>WF_SESGO` lo publica. Sin esa etiqueta, esto se
+> habría diagnosticado (otra vez) como «el robot se va torcido», que es lo que se le achaca al
+> rozamiento.
+>
+> ✅ **Comprobación rápida**: en un **avance recto** el giroscopio tiene que quedarse **cerca de 0**
+> (`>MOV_GYR` ≈ `>MOV_ANG` ≈ 0). Si acumula decenas o cientos de grados con el robot yendo recto, el
+> sesgo está mal y hay que **volver a entrar en la prueba con el robot quieto**.
+
+#### ✅ La medida que zanjó el asunto: cuatro giros de 90 (2026-10-02)
+
+Maniobra **`MOV UP 4`** (cuatro giros de 90° hacia el mismo lado) sobre la mesa, con el **giroscopio**
+cerrando el lazo y el **corrector de centro desactivado**:
+
+| Giro | `>MOV_GYR` (acumulado) | **Incremento** | `>MOV_ANG` (odometría) | Arrastre |
+|:----:|:----------------------:|:--------------:|:----------------------:|:--------:|
+| 1 | 91,3° | **+91,3°** | +94,5° | 21 mm |
+| 2 | 181,0° | **+89,8°** | −132,6° | 27 mm |
+| 3 | 269,7° | **+88,6°** | −30,5° | 43 mm |
+| 4 | **359,0°** | **+89,3°** | +86,7° | 52 mm |
+
+**Cuatro giros de ~90° y el robot vuelve a mirar donde miraba: 359° de los 360 pedidos.** Y el **camino
+parásito total cae a 52 mm**, cuando con el corrector de centro a 8 eran **143 mm por giro**.
+
+> ✅ **De aquí salen las tres decisiones finales**: **(1)** el **giroscopio** es la referencia del giro;
+> **(2)** el **corrector de centro se desactiva** —se realimentaba con la odometría del pivote, que
+> miente, y **arrastraba al robot** en vez de centrarlo—; **(3)** el **umbral de sesgo sube a 10 °/s**,
+> porque con ±7 el giroscopio seguía acertando (ver la tabla `+90 −90` de abajo: reprodujo un giro a la
+> derecha que la odometría daba como izquierda).
+
+> ⚠️ **La tabla de abajo está SUPERADA por esta medida**, y se conserva por el **error de método** que
+> contiene: sus conclusiones salen de usar **el giroscopio como testigo** para juzgar al giroscopio.
+> Fue el usuario, mirando el robot, quien dijo «ese giro no es de 90» y quien destapó que de los dos
+> sensores **el que miente es la odometría**, no el gyro. 📌 **Un sensor no se juzga con otro sensor del
+> mismo robot: se juzga con una marca en el suelo.**
+
+#### ✅ El error de **escala** del giroscopio (2026-10-02)
+
+Con la escala del datasheet (16,4 LSB por °/s, rango de 2000 °/s) el integrador se quedaba **corto un
+25 %**. Medido con **cuatro giros de 90° hacia el mismo lado** (`MOV UP 4` = 360 pedidos):
+
+| Escala que llevaba | Giro real (4 giros) | Escala que sale |
+|:------------------:|:-------------------:|:---------------:|
+| 1,00 | ~450° | 1,25 |
+| 1,25 | ~405° («se ha pasado unos 45») | **1,40** |
+
+Se toma **1,40**, que es la medida hecha con más atención. Y queda **verificado** con los mismos cuatro
+giros:
+
+| Giro | Incremento medido | Arrastre |
+|:----:|:-----------------:|:--------:|
+| 1 | +90,83° | 15 mm |
+| 2 | +89,06° | 19 mm |
+| 3 | +89,33° | 41 mm |
+| 4 | +91,24° | 54 mm |
+| **Total** | **360,46°** (pedidos 360) | **54 mm** |
+
+⇒ **0,5° de error en una vuelta completa**, y el **sesgo se queda en 0,1 °/s** (venía de ±12: al no
+arrastrarse el robot durante el giro, el asentamiento mide el sesgo de verdad).
+
+> ⚠️ **Es un error de ESCALA, no de sesgo, y el módulo es el culpable**: el IC va marcado
+> `MP65888LB1`, que no corresponde a ningún InvenSense — es un **clon**, y su sensibilidad real no tiene
+> por qué ser la del datasheet. Por eso la constante está medida y no copiada.
+>
+> 📌 **Y la lección de método**: un error de escala **no se ve en un giro suelto** — 90° se quedan en 65
+> y parece «un giro que se ha quedado corto», que es exactamente lo que se achaca al rozamiento. Lo
+> delata **pedir varias vueltas**: el error se multiplica y sale a la vista. Para calibrar una escala hay
+> que medir **mucho**, no fino.
+>
+> 📌 **Y la otra**: la escala se estimó con **dos pasadas** (1,25 y 1,40) porque la primera medida salió
+> de una apreciación a ojo. Con el segundo giro, hecho prestando atención, el número cuadró al 0,1 %.
+
+#### ⚠️ Superada: la comparación que se hizo con el testigo equivocado (2026-10-02)
+
+Maniobra **`+90° −90°`** sobre la mesa, que es la que hay que usar para juzgar un giro: **duplica el
+error** y tiene que devolver el robot **al mismo sitio y mirando a lo mismo**. Se repite con cada
+referencia **sin reflashear**, con la orden de consola `GYRO ODOM|GIRO|FUSION`.
+
+Los giros «reales» los mide el **giroscopio**, que aquí se tomó por testigo independiente — **y eso fue
+el error**: se estaba usando el sensor sospechoso para juzgar a los demás.
+
+| Referencia | Giro +90 (real) | Giro −90 (real) | **Cierre orientación** | Cierre posición | Camino parásito | Duración |
+|:-----------|:---------------:|:---------------:|:----------------------:|:---------------:|:---------------:|:--------:|
+| Odometría | **+89,5°** | **−93,9°** | **−4,4°** | **11,5 mm** | **53 mm** | **0,72 s** |
+| Giroscopio | +86,7° | −90,9° | −4,2° | 13,3 mm | 216 mm | 1,80 s |
+| Fusión | +89,4° | −104,1° | **−14,7°** | 17,3 mm | 247 mm | 1,55 s |
+
+Lo único que **sí** quedó claro en esta tanda, y sigue valiendo: **la fusión es la peor** (promediar un
+error con otro no reparte el fallo), y **el corrector de centro arrastra al robot** de forma
+proporcional a lo que dura el giro. El resto de conclusiones (que «ganaba la odometría») **eran
+falsas**.
+
+#### El giro en el laberinto: el corrector de centro necesitaba tope (2026-10-02)
+
+Con el sesgo ya arreglado, el robot **cruzó tres celdas rectas seguidas** —**179,3 · 180,2 · 177,4 mm**
+con `>WF_GYR` en **−2,4 · −0,9 · −0,6°**— y **detectó la pared** de la celda 4. El atasco se había
+mudado al **giro**: en la celda sin salida el robot se quedaba empujando contra la pared
+(`>WF_ATASCO:1`). Dos causas, las dos del giro:
+
+| | Qué pasaba | Arreglo |
+|:--|:--|:--|
+| **Corrector de centro sin tope** | `centro_mm_s = -MOTION_GIRO_CENTRO_KP × desplazamiento_mm` **no tenía recorte**. Es un término **común** a las dos ruedas, así que no toca la diferencia —que es lo que gira— pero **mueve el robot**. Y girando **rozando las paredes** la odometría cuenta desplazamiento que no es real: con 100 mm de cuenta falsa y $K_p = 8$ pide **800 mm/s a las dos ruedas** ⇒ el robot **sale disparado contra la pared** en vez de pivotar | Tope **`MOTION_GIRO_CENTRO_MAX_MM_S` = 60 mm/s** (24 % del crucero): el corrector sigue quitando el desplazamiento de verdad, que son milímetros |
+| **Cinco giros por decisión** | El robot comprobaba la izquierda **girando**: girar a la mano, deshacer, girar al otro lado, medir y volver ⇒ hasta **cinco** giros de 90° en una celda sin salida, y en el laberinto **cada giro roza** (el chasis barre ~147 mm en una celda de 180) | Orden nuevo: **frente → mano → atrás**, que resuelve un fondo de saco con **dos** giros |
+
+> ⚠️ **El precio del segundo cambio**: un cruce en «T» hacia la izquierda se pasa de largo, porque el
+> robot ya no mira a ese lado. Se cambia **explorar más** por **atascarse menos**, que es lo que hace
+> falta para el objetivo de «moverse sin chocar».
+
+#### Verificar el giroscopio (1 minuto, **desde la prueba 20**)
+
+`MOTION_GYRO_SIGNO_Z` **no se puede deducir del código**: depende de cómo esté montado el módulo. En
+este robot **ya está comprobado** el 2026-10-02 —`MOV UP` gira a la izquierda y `>MOV_GYR` **sube**, así
+que el valor bueno es `1.0f`—. Si algún día se remonta la IMU, se vuelve a medir así:
+
+> ⚠️ **No se mide con la prueba 5**: esa prueba está **fuera del menú** desde el recorte de Flash del
+> 2026-10-02. Se mide con la **20**, que sí está y ya publica el ángulo del giroscopio.
+
+1. **TEST → MOTORES → MOVIMIENTO** (`>MOV_GYROK` tiene que salir **1**; si sale **0**, la IMU no
+   responde y el giro va con la odometría).
+2. **UP** ⇒ el robot gira **90° a la izquierda** y publica el grupo `MOV_*`.
+3. Comparar los dos ángulos:
+
+| Giro a la **izquierda** | `>MOV_ANG` (odo) | `>MOV_GYR` (giro) | Veredicto |
+|:------------------------|:----------------:|:-----------------:|:----------|
+| | sube | **sube** | ✅ signo correcto (`1.0f`) |
+| | sube | **baja** | ⚠️ invertido ⇒ `MOTION_GYRO_SIGNO_Z = -1.0f` |
+| | sube | ≈ **0** o disparatado | El módulo mide otro eje, o la IMU no responde: mirar `>MOV_GYROK` |
+
+> ✅ **Este es el orden seguro: girar antes de avanzar.** Una medida equivocada no estropea el giro (el
+> giroscopio solo se mira al principio); lo que estropea es el **avance siguiente**, donde el lazo se
+> realimenta y el robot se va en curva clara. Con el signo al revés, `correccion` se queda pegada al tope
+> y el desvío **crece** en vez de apagarse.
 
 ### ⚠️ Por qué `ANG` da 90 → 180 → −90 → 0
 
@@ -1465,8 +1745,14 @@ Los números que se tocan en banco están todos en `app/motion.h`:
 | `MOTION_TOL_MM` / `MOTION_TOL_GRADOS` | 3 / 1,5 | Cuándo se da por terminado el movimiento |
 | `MOTION_AVANCE_KP` | 1,5 | Freno proporcional al avanzar |
 | `MOTION_GIRO_KP` | 4 | Rapidez del lazo de ángulo |
+| `MOTION_GIRO_CENTRO_KP` | 8 | Cuánto corrige el **desplazamiento** del giro [mm/s por mm] |
+| `MOTION_GIRO_CENTRO_MAX_MM_S` | 60 | **Tope** de esa corrección. ⚠️ Sin él el giro se pierde: girando rozando las paredes la odometría cuenta desplazamiento falso y el corrector pide cientos de mm/s a las dos ruedas |
 | `MOTION_GIRO_VEL_MIN_MM_S` | 40 | **Mínimo para vencer la fricción estática**: si el robot se queda a medio giro, es esto |
-| `MOTION_RUMBO_KP` | 3 | Cuánto corrige el desvío al avanzar recto |
+| `MOTION_RUMBO_KP` | 3 | Cuánto corrige el desvío al avanzar recto **con la odometría** (solo si no hay IMU) |
+| `MOTION_GYRO_KP` | 12 | Cuánto corrige el desvío al avanzar recto **con el giroscopio**. ⚠️ El valor está puesto para que el lazo **no sature** (ver «El zigzag»), no por rapidez |
+| `MOTION_GYRO_CORR_MAX_MM_S` | 60 | Tope de esa corrección [mm/s]: al 24 % de la velocidad de crucero. Con 12, satura a partir de **5°** |
+| `MOTION_GYRO_SIGNO_Z` | 1 | Signo del eje Z — **medido**, ver «Verificar el giroscopio» |
+| `MOTION_GYRO_REFINAR_MAX_PASO` | 5 | Cuánto puede mover el sesgo un solo refinamiento [°/s]: es el tope que impide que una medida contaminada le dé la vuelta |
 
 Las **ganancias del lazo de velocidad** no están ahí: se cogen de la prueba 18 (`APP_PID_GetGanancia()`),
 que se sintoniza en caliente por consola. Se sintoniza una vez y vale para todo.
@@ -1478,7 +1764,12 @@ que se sintoniza en caliente por consola. Se sintoniza una vez y vale para todo.
 | El robot se queda a medio giro, parado, sin llegar | `MOTION_GIRO_VEL_MIN_MM_S` demasiado bajo: el duty no vence la fricción. Subirlo |
 | El giro oscila alrededor del objetivo | `MOTION_GIRO_KP` alto, o velocidad de crucero alta: bajar alguno de los dos |
 | Se pasa siempre en el mismo sentido al frenar | Es la inercia: `MOTION_TOL_GRADOS` demasiado estrecha para esa velocidad |
-| Al avanzar se va de lado | `MOTION_RUMBO_KP` bajo, o los encoders no son simétricos (prueba 7) |
+| Al avanzar se va de lado | Si `>MOV_GYROK` es **1**, el problema **no** es el lazo: mira si el robot roza, si una rueda arrastra o si los encoders no son simétricos (prueba 7). Si es **0**, la IMU no responde (prueba 5) y manda el respaldo por odometría, que **arrastra** el error (subir `MOTION_RUMBO_KP` no lo arregla) |
+| `>MOV_GYR` se separa de `>MOV_ANG` | Los dos miden el mismo giro y **en el avance coinciden** (02-oct: +2,3° frente a −0,1°). Si se separan mucho **en el avance**, la odometría está mal (µm por cuenta, prueba 7; trocha, prueba 19). En un **giro** se separan a propósito: la odometría sobreestima el pivote ~44 % y ahora manda el giroscopio |
+| El robot gira **menos** de 90° | Si `>MOV_GYROK` es **1** ya no puede ser el lazo: mira si el robot **derrapa** al pivotar, y comprueba el **dato real** con una marca en el suelo. Con **0**, manda la odometría, que sobreestima el pivote un 44 % (medido el 02-oct) |
+| El robot se va en curva **clara** al avanzar | `MOTION_GYRO_SIGNO_Z` al revés (ver «Verificar el giroscopio») |
+| `>MOV_GYR`/`>WF_GYR` acumula **cientos de grados** y el robot **no gira** | **El sesgo del giroscopio está mal medido** (se calibró con el robot moviéndose): el lazo integra ese error y corrige a tope sin parar ⇒ el robot choca de lado. Volver a entrar en la prueba **con el robot quieto** |
+| El robot hace **zigzag** (va recto pero temblando) | **El lazo está saturado**: con $K_p$ alto la corrección llega al tope con un desvío mínimo y el lazo se comporta como un **relé**, que oscila siempre por el retardo. **Bajar `MOTION_GYRO_KP`** (o mirar `e_sat = tope/K_p`: tiene que quedar por encima del desvío que se ve en una celda) |
 | El error de distancia **crece** en cada celda | No es el lazo: es el **µm por cuenta** (prueba 7) |
 
 ---
@@ -1512,6 +1803,24 @@ Lo que se mide es **`encendido − apagado`**: se lee el receptor con su emisor 
 resta. La luz ambiente cae en los dos términos y se va en la resta. Por eso el mismo umbral vale de día
 y de noche.
 
+### Valores medidos en el laberinto (2026-10-02)
+
+Robot en el pasillo, prueba 21, con la pared delantera puesta y **sin nada a los lados**:
+
+| Canal | Con pared delante | Sin pared (fondo) | Umbral puesto |
+|:------|:-----------------:|:-----------------:|:-------------:|
+| **FRENTE** (R0) | **149** | **0** | **75** |
+| DERECHA (R1) | — | 105 | 2050 |
+| IZQUIERDA (R2) | — | −3 | 900 |
+
+El frontal queda a mitad de camino, con **2× de margen por cada lado**, y la histéresis de 60 cabe
+justa (enciende por encima de 105, apaga por debajo de 45).
+
+> ⚠️ **El `−3` de la izquierda es la clave de lectura de la tabla**: la medida es una **resta**
+> (`encendido − apagado`), y salir negativa quiere decir que ahí **no hay señal**, solo ruido. Los dos
+> laterales miden eso **cuando no hay nada al lado**: no es que estén mal, es que **apuntan hacia
+> delante** y no ven las paredes laterales. Por eso el *wall follower* decide **solo con el frontal**.
+
 ### Cómo se ajusta (2 minutos)
 
 1. Robot **quieto**, en el sitio donde va a decidir, con las paredes del laberinto puestas.
@@ -1525,7 +1834,15 @@ y de noche.
 > que oscila alrededor del corte enciende y apaga la pared en pasos consecutivos, y la FSM da tirones.
 
 > ⚠️ **Los umbrales no se guardan en Flash**: si un ajuste te vale para siempre, hay que poner el valor
-> en `WALLS_UMBRAL_DEF` (`app/walls.h`).
+> en su `#define` de `app/walls.h` — **uno por pared**: `WALLS_UMBRAL_FRENTE_DEF`,
+> `WALLS_UMBRAL_DERECHA_DEF` y `WALLS_UMBRAL_IZQUIERDA_DEF`. **No hay un umbral común, y no es un
+> capricho**: el fondo de cada canal es muy distinto, y con uno solo bajo las tres paredes leerían
+> «hay» siempre.
+>
+> ⛔ **Y con los umbrales de fábrica altos el robot es CIEGO**: medido el 2026-10-02, el frontal daba
+> **149** con pared y **0** sin ella, y su umbral de arranque era **500** ⇒ `WALLS_Hay()` devolvía 0
+> **siempre** y el *wall follower* avanzó derecho **hasta chocar** (16: `>WF_FRENTE:0` en todas las
+> muestras). Si el robot no ve nada, **mirar primero el umbral**, no el sensor.
 
 ### Criterios
 
@@ -1533,8 +1850,7 @@ y de noche.
 |:-------------|:---------|
 | Con pared delante y el umbral ajustado | `FRENTE` = 1 |
 | Sin pared delante (más de 30 cm) | `FRENTE` = 0 |
-| Robot centrado en un pasillo de 18 cm | `DERECHA` = 1 y `IZQUIERDA` = 1 |
-| Intersección sin paredes laterales | los dos laterales a 0 |
+| ⚠️ Robot centrado en un pasillo de 18 cm | **Los laterales dan 0**: este robot no ve paredes laterales. **No es un fallo que hay que arreglar aquí**, es la geometría de los receptores (apuntan hacia delante) |
 | Robot quieto 30 s | el veredicto **no parpadea** |
 
 ---

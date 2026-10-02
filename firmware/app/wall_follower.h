@@ -17,6 +17,19 @@
  * explorar, y la regla de la mano lo recorre entero sin conocer el mapa de antemano. Un *flood fill*
  * haría falta para resolverlo, y eso no es el objetivo: el objetivo es **moverse sin chocar**.
  *
+ * ⚠️ **Desde el 2026-10-02 la mano se decide GIRANDO Y MIDIENDO EL FRENTE, no leyendo tres paredes.**
+ * La regla clásica necesita que los receptores laterales vean las paredes de los lados, y está medido
+ * que **no las ven** (con una pared a 10 cm de su lado y sin ella leen lo mismo), así que decidía con
+ * dos datos falsos. Ahora, en cada casilla, el robot prueba **frente → mano → otro lado → atrás**
+ * girando 90° y midiendo el frente cada vez: **solo avanza por donde ha visto el paso libre**.
+ * **No puede chocar**, y solo necesita el canal frontal, que sí funciona.
+ *
+ * ⚠️ **El frente se mira SIN girar, y es a propósito**: medido en el pasillo de casa, el robot **no
+ * cabe girando sobre su eje** en una casilla de 180 mm (roza las paredes, la odometría cuenta vueltas
+ * que no da y el rumbo se le va a 45-75°). ⇒ **cuantos menos giros, mejor**: así un pasillo recto se
+ * recorre con **cero giros**. El precio es que en un cruce con el frente libre **no entra en el ramal
+ * lateral** — se acepta a cambio de que vaya recto de verdad.
+ *
  * **La decisión se toma en el centro de la celda**, no al ver el hueco. Los sensores van 12 cm por
  * delante del eje, así que a esa altura ya «ven» el cruce que viene; girar en cuanto se ve el hueco
  * dejaría al robot desalineado justo donde el pasillo nuevo no tiene pared que lo corrija. Se avanza
@@ -105,9 +118,10 @@ void WF_ReiniciarCeldas(void);
 uint8_t WF_GetAtascado(void);
 
 /**
- * @brief Da **un** paso: mira las paredes, decide, gira si toca y entra en la celda.
+ * @brief Da **un** paso: busca una dirección libre girando y midiendo el frente, y entra en la celda.
  *
- * **Bloqueante**: tarda lo que tarden el giro y el avance, del orden de 2 a 3 s.
+ * **Bloqueante**: tarda lo que tarden los giros (de uno a cuatro de 90°) y el avance, del orden de
+ * 2 a 4 s según lo que tenga que buscar.
  *
  * @return 1 si dio el paso, 0 si hay que parar (MENU pulsado, o `WF_CELDAS_MAX` agotado)
  */

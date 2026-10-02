@@ -42,10 +42,22 @@ El menú raíz es `TEST` · `EXPLORE` · `RESOLVE` · `SETTINGS` · `DIAG` · `P
 |:--------|:-------------------------------|
 | **Ajustar los umbrales de pared** (`PAREDES`) | `OK` · `DOWN` · `OK` · `OK` |
 | **Comprobar la batería** (`BATERIA`) | `OK` · `OK` · `DOWN` · `OK` |
-| Comprobar el IR modulado (`IR MODULADO`) | `OK` · `DOWN` · `OK` · `DOWN` · `OK` |
+| Alinear los focos IR (`EMISORES IR`) | `OK` · `DOWN` · `OK` · `DOWN` · `OK` |
+| Comprobar el IR modulado (`IR MODULADO`) | `OK` · `DOWN` · `OK` · `DOWN`×7 · `OK` |
 | Movimiento y giros (`MOVIMIENTO`) | `OK` · `DOWN` `DOWN` · `OK` · `OK` |
 | PID (`PID VELOCIDAD`) | `OK` · `DOWN` `DOWN` · `OK` · `DOWN` · `OK` |
 | **Recorrer el laberinto** (`WALL FOLLOWER`) | `DOWN` · `OK` · `OK` |
+
+> 🔢 **El contador de la cabecera es la brújula.** Cuando una lista tiene más filas de las que caben,
+> el título lleva `i/n` (`TEST IR 3/9`). **No cuentes pulsaciones: baja hasta que ponga la fila que
+> quieres y pulsa OK.** Las filas del bloque **IR** son:
+>
+> `1` PAREDES · `2` EMISORES IR · `3` IR RECEPTORES · `4` VER R0 · `5` VER R1 · `6` VER R2 ·
+> `7` VER R3 · `8` IR MODULADO · `9` CURVA IR
+>
+> ⚠️ **Ese bloque pasó de 3 a 9 filas el 2026-10-02** (se recuperaron `EMISORES IR`, `IR RECEPTORES`
+> y `VER R0`..`VER R3`), así que **cualquier ruta apuntada de memoria antes de esa fecha está mal**.
+> El contador no miente: si no dice lo que esperas, sigue bajando.
 
 ---
 

@@ -192,14 +192,21 @@ static const Menu_Entrada_t menu_test_analogico[] = {
 
 static const Menu_Entrada_t menu_test_ir[] = {
     { "PAREDES",       MENU_TIPO_LANZAR, App_Test_Paredes,       0U },
-    /* Retiradas: EMISORES IR (14) · IR RECEPTORES y VER R0..R3 (15): el emparejamiento
-       emisor↔receptor y la posición de los receptores ya están medidos y anotados en hardware.md */
-    /* { "EMISORES IR",   MENU_TIPO_LANZAR, App_Test_EmisoresIR,    0U }, */
-    /* { "IR RECEPTORES", MENU_TIPO_LANZAR, App_Test_IR_Receptores, 0U }, */
-    /* { "VER R0",        MENU_TIPO_LANZAR, App_Test_R0,            0U }, */
-    /* { "VER R1",        MENU_TIPO_LANZAR, App_Test_R1,            0U }, */
-    /* { "VER R2",        MENU_TIPO_LANZAR, App_Test_R2,            0U }, */
-    /* { "VER R3",        MENU_TIPO_LANZAR, App_Test_R3,            0U }, */
+    /* EMISORES IR VUELVE (2026-10-02, por la tarde): es la herramienta para **alinear el apuntado**
+       de los focos con un folio blanco y la camara del movil. Con `5` se encienden **los cuatro a la
+       vez**, y el que apunta a otra provincia se ve de un vistazo; con el parpadeo a 4 Hz de la 16
+       habia que mirarlos de uno en uno y adivinar. */
+    { "EMISORES IR",   MENU_TIPO_LANZAR, App_Test_EmisoresIR,    0U },
+    /* IR RECEPTORES y VER R0..R3 VUELVEN TAMBIEN (2026-10-02): son **la matriz 4x4** -- encienden
+       cada emisor y ensenan lo que recibe CADA receptor --, y son la unica forma de comprobar el
+       emparejamiento con el montaje delante de los ojos. El de hardware.md se dedujo con una pared
+       de frente a 10 cm, y con una pared delante **los cuatro emisores iluminan a los cuatro
+       receptores**: la pareja «ganadora» pudo ser simplemente la mas cercana, no la buena. */
+    { "IR RECEPTORES", MENU_TIPO_LANZAR, App_Test_IR_Receptores, 0U },
+    { "VER R0",        MENU_TIPO_LANZAR, App_Test_R0,            0U },
+    { "VER R1",        MENU_TIPO_LANZAR, App_Test_R1,            0U },
+    { "VER R2",        MENU_TIPO_LANZAR, App_Test_R2,            0U },
+    { "VER R3",        MENU_TIPO_LANZAR, App_Test_R3,            0U },
     { "IR MODULADO",   MENU_TIPO_LANZAR, App_Test_IR_Modulado,   0U },
     { "CURVA IR",      MENU_TIPO_LANZAR, App_Test_CalibracionIR, 0U },
 };
@@ -2027,11 +2034,14 @@ static const uint16_t ir_emisor_pin[4] = { IR_E1_PIN, IR_E2_PIN, IR_E3_PIN, IR_E
  * Está en la **numeración de la telemetría** (`IR0`..`IR3`, la misma de `>IR0`..`>IR3`):
  * `ir_pareja_emisor[canal]` es el emisor que hace crecer la lectura de ese receptor.
  *
- * Medida el 30-sep con pared a 10 cm (submenús `VER Rn`): R0←IR3, R1←IR1, R2←IR2 y R3←IR0. No es la
- * pareja «natural» (0↔0, 1↔1…) porque el soldado no siguió el orden geométrico. Y como cada receptor
- * ve al emisor que apunta hacia el mismo lado, esto además **sitúa los receptores**
- * (`hardware.md` §4.4): `R0` frontal derecho, `R1` lateral derecho, `R2` lateral izquierdo y `R3`
- * frontal izquierdo.
+ * Medido con la **matriz 4×4** de la prueba 15 (02-oct, robot a 10 cm de una pared y los LEDs
+ * apantallados con tubo negro): **R0←IR3, R1←IR1, R2←IR2 y R3←IR0**.
+ *
+ * @warning **Los laterales no sirven para esto**: con una pared a 10 cm de su lado y sin ella leen lo
+ *          mismo (546 contra 544 en `R2`), así que su `DIF` es acoplamiento con su emisor y no pared.
+ *          La pareja está puesta igualmente porque es la del 30-sep y **no es lo que limita** —el
+ *          cruzado da el mismo resultado—, pero **`IR MODULADO` y `CURVA IR` no dicen nada útil de
+ *          `R1` ni de `R2`**. Ver `app/walls.c` para la historia completa.
  */
 static const uint8_t ir_pareja_emisor[4] = { 3U, 1U, 2U, 0U };
 
@@ -2275,9 +2285,8 @@ static void app_pantalla_soldadura(const Adc_Estado_t *est_ir, Adc_Estado_t est_
              adc_estado_nombre[est_b1]);
     oled_print_line(3U, linea);
 
-    oled_print_line(4U, "VER TELEPLOT");
-    oled_print_line(5U, "MENU: SALIR");
-
+    /* Las cuatro filas de la pantalla ya están ocupadas: no cabe el aviso de salida (y en la fila 4
+       no se dibujaría nada, que es la trampa que tuvo la prueba 16). */
     OLED_Update();
 }
 
@@ -2360,42 +2369,61 @@ void App_Test_ADC_Soldadura(void)
 }
 
 /**
- * @brief Enciende los 4 emisores de uno en uno y luego los cuatro juntos (prueba 14).
+ * @brief Enciende los emisores IR —de uno en uno o los cuatro— y **los deja fijos** (prueba 14).
  *
- * Es la prueba que confirma que el JTAG está desactivado: PB3 y PB4 son JTDO/NJTRST y, si alguien
- * vuelve a habilitarlo, L1 y L2 dejan de encender. El LED de 860 nm no se ve a simple vista: hay que
- * mirarlo a través de la cámara de un móvil.
+ * Es la herramienta para **alinear el apuntado** de los focos: con los cuatro encendidos y un folio
+ * blanco delante, el emisor que apunta a otra provincia se ve de un vistazo con la cámara del móvil.
+ * Y al quedarse **fijos**, el punto no se escapa mientras se gira el LED.
  *
- * @note Telemetría: `>IR_LED:1`..`4` (un emisor), `5` (los cuatro juntos, prueba de esfuerzo del riel
- *       de 3,3 V) y `0` (apagados). Cada paso dura `IR_LED_MS`.
+ * También confirma que el **JTAG está desactivado**: PB3 y PB4 son JTDO/NJTRST y, si alguien vuelve a
+ * habilitarlo, L1 y L2 dejan de encender. El LED de 860 nm no se ve a simple vista: hay que mirarlo a
+ * través de la cámara de un móvil.
+ *
+ * @note Botones: **UP/DOWN** eligen (apagados · 1..4 · los cuatro) · **MENU** sale y los apaga.
+ * @note Telemetría: `>IR_LED:0` (apagados), `1`..`4` (un emisor) y `5` (los cuatro juntos).
  * @warning Al encender los cuatro juntos el riel pide ≈300 mA: en uso normal solo luce uno.
+ * @warning **No parpadean a propósito, y es una decisión, no un olvido.** El pico de corriente lo fija
+ *          la resistencia en serie (22 Ω ⇒ ≈75 mA), así que **pulsarlos no daría más luz**: la media
+ *          baja con el ciclo de trabajo y la cámara vería **menos**. En continua se ve el máximo y sin
+ *          parpadeo. Para más brillo de verdad hay que **bajar esa resistencia**, y el BC337 no pasa
+ *          de ≈250-300 mA desde un pin del MCU.
  * @see Documentacion/pruebas-bringup.md §13.2
  */
 void App_Test_EmisoresIR(void)
 {
-    static const uint8_t secuencia[] = { 1U, 2U, 3U, 4U, IR_LED_TODOS, 0U };
-    const uint8_t        n_pasos = (uint8_t)(sizeof(secuencia) / sizeof(secuencia[0]));
-
+    static const uint8_t opciones[] = { 0U, 1U, 2U, 3U, 4U, IR_LED_TODOS };
+    const uint8_t        n_opciones = (uint8_t)(sizeof(opciones) / sizeof(opciones[0]));
+    uint8_t              elegido    = 1U;   /* Arranca con el primero encendido: ya se ve algo. */
 
     while (!BUTTONS_SalidaSolicitada()) {
-        for (uint8_t paso = 0U; (paso < n_pasos) && !BUTTONS_SalidaSolicitada(); paso++) {
-            char estado[16];
+        char    estado[16];
+        uint8_t evento;
 
-            ir_emisor_seleccionar(secuencia[paso]);
-            TELEM_SendInt("IR_LED", (int32_t)secuencia[paso]);
+        ir_emisor_seleccionar(opciones[elegido]);
 
-            if (secuencia[paso] == IR_LED_TODOS) {
-                snprintf(estado, sizeof(estado), "TODOS");
-            } else if (secuencia[paso] == 0U) {
-                snprintf(estado, sizeof(estado), "APAGADOS");
-            } else {
-                snprintf(estado, sizeof(estado), "LED %u", (unsigned)secuencia[paso]);
-            }
+        BUTTONS_Update();
+        evento = BUTTONS_GetEvent();
 
-            app_pantalla_telemetria("EMISORES IR", estado);
-
-            HAL_Delay(IR_LED_MS);
+        if (evento == BTN_NUM_UP) {
+            elegido = (uint8_t)((elegido + 1U) % n_opciones);
+            TELEM_SendInt("IR_LED", (int32_t)opciones[elegido]);
+        } else if (evento == BTN_NUM_DOWN) {
+            elegido = (uint8_t)((elegido + (n_opciones - 1U)) % n_opciones);
+            TELEM_SendInt("IR_LED", (int32_t)opciones[elegido]);
         }
+
+        if (opciones[elegido] == IR_LED_TODOS) {
+            snprintf(estado, sizeof(estado), "TODOS");
+        } else if (opciones[elegido] == 0U) {
+            snprintf(estado, sizeof(estado), "APAGADOS");
+        } else {
+            snprintf(estado, sizeof(estado), "LED %u", (unsigned)opciones[elegido]);
+        }
+
+        app_pantalla_telemetria("EMISORES IR", estado);
+
+        /* 50 ms: el botón se siente inmediato, y la pantalla lleva su propio ritmo (500 ms). */
+        HAL_Delay(50U);
     }
 
     ir_emisor_seleccionar(0U);
@@ -2569,29 +2597,33 @@ void App_Test_R3(void)
 }
 
 /**
- * @brief Pinta el `DIF` y su dispersión de los 4 canales (prueba 16).
+ * @brief Pinta el `DIF` de los cuatro canales, de dos en dos (prueba 16).
  *
  * @param dif Diferencia encendido − apagado de cada receptor, en cuentas
- * @param var Dispersión de esa diferencia, en % de su valor medio
+ * @note **Dos canales por fila, y no uno.** En 128×32 solo hay 4 filas de texto: con una fila por
+ *       canal el `R3` caía en la fila 4 y no se dibujaba, así que en pantalla solo salían R0, R1 y
+ *       R2. Con dos por fila caben los cuatro y sobra la fila del aviso de salida.
+ * @note El `VAR` no se pinta: para seguir el `DIF` estorba, y como indicador se sigue publicando por
+ *       telemetría (`>Rn_VAR`).
  * @note Sin contador de latidos: aquí lo que decide son los números —`DIF` alto y `VAR` bajo— y se
  *       mueven solos al encender y apagar la luz, que es lo que se está probando.
  */
-static void app_pantalla_modulado(const int16_t *dif, const int16_t *var)
+static void app_pantalla_modulado(const int16_t *dif)
 {
     char linea[32];
 
     OLED_Clear();
     oled_print_line(0U, "IR MODULADO");
 
-    for (uint8_t canal = 0U; canal < IR_N_CANALES; canal++) {
-        /* Los dos valores son de 16 bits: `%hd` acota el ancho y el compilador no avisa por
-           truncamiento (con `%d` supone un `int`, o sea 11 caracteres por número). */
-        snprintf(linea, sizeof(linea), "R%u DIF %hd VAR %hd", (unsigned)canal, dif[canal],
-                 var[canal]);
-        oled_print_line((uint8_t)(1U + canal), linea);
-    }
+    /* Los valores son de 16 bits: `%5hd` los alinea a la derecha para que no bailen de columna al
+       pasar de 4 a 3 dígitos, o al cambiar de signo (con `%d` el compilador supone un `int`). */
+    snprintf(linea, sizeof(linea), "R0%5hd  R1%5hd", dif[0], dif[1]);
+    oled_print_line(1U, linea);
 
-    oled_print_line(5U, "MENU: SALIR");
+    snprintf(linea, sizeof(linea), "R2%5hd  R3%5hd", dif[2], dif[3]);
+    oled_print_line(2U, linea);
+
+    oled_print_line(3U, "MENU: SALIR");
 
     OLED_Update();
 }
@@ -2605,8 +2637,8 @@ static void app_pantalla_modulado(const int16_t *dif, const int16_t *var)
  *
  * @note Telemetría: `>R0_OFF`, `>R0_ON`, `>R0_DIF` y `>R0_VAR` (dispersión de la diferencia, en %
  *       de su valor medio). Se repite a 4 Hz.
- * @note La pantalla (`app_pantalla_modulado()`) enseña el `DIF` y el `VAR` de los 4 canales, que son
- *       los dos números que deciden si la prueba pasa.
+ * @note La pantalla (`app_pantalla_modulado()`) enseña el `DIF` de los 4 canales, de dos en dos. El
+ *       `VAR` solo va por telemetría.
  * @warning **Luz ambiente**: con sol directo sobre la pared el fondo sube y el `DIF` se queda corto.
  *          Se hace con luz controlada (sala encendida y apagada, pared en sombra), que es justo lo
  *          que la prueba quiere demostrar que da igual.
@@ -2618,7 +2650,6 @@ void App_Test_IR_Modulado(void)
 
     while (!BUTTONS_SalidaSolicitada()) {
         int16_t dif[IR_N_CANALES];
-        int16_t var[IR_N_CANALES];
 
         for (uint8_t canal = 0U; canal < IR_N_CANALES; canal++) {
             Ir_ParMedidas_t m = ir_medir_par(canal, ir_pareja_emisor[canal], IR_PARES_16);
@@ -2644,10 +2675,9 @@ void App_Test_IR_Modulado(void)
             TELEM_SendInt(etiqueta, desviacion);
 
             dif[canal] = m.dif;
-            var[canal] = (int16_t)desviacion;
         }
 
-        app_pantalla_modulado(dif, var);
+        app_pantalla_modulado(dif);
 
         HAL_Delay(250U);
     }
@@ -2660,6 +2690,8 @@ void App_Test_IR_Modulado(void)
  *
  * @param fila Fila donde empieza (0 arriba, 8 px por fila)
  * @param texto Texto a escribir; se corta al llegar al ancho de la pantalla
+ * @warning La pantalla es 128×32: **solo hay 4 filas (0..3)**. De la 4 en adelante `OLED_Print()`
+ *          sale sin dibujar y el texto desaparece en silencio, sin error ni aviso.
  */
 static void oled_print_line(uint8_t fila, const char *texto)
 {
@@ -2695,6 +2727,19 @@ static void ir_cal_dibujar(uint8_t canal, uint8_t hechos)
 }
 
 /**
+ * @brief Enciende el emisor que ilumina un canal y apaga los otros tres.
+ *
+ * @param canal Receptor que se está calibrando (0..IR_N_CANALES-1)
+ * @note La prueba 17 **no encendía ningún emisor**: medía el fondo de la sala y guardaba eso como
+ *       «curva de distancia», que no depende de la distancia. Ver el registro de
+ *       `estado-del-proyecto.md` (2026-10-02).
+ */
+static void ir_cal_emisor(uint8_t canal)
+{
+    ir_emisor_seleccionar((uint8_t)(ir_pareja_emisor[canal] + 1U));
+}
+
+/**
  * @brief Congela un punto de la curva y lo publica (prueba 17).
  *
  * @param tabla Tabla de calibración (se escribe la celda)
@@ -2703,8 +2748,13 @@ static void ir_cal_dibujar(uint8_t canal, uint8_t hechos)
  */
 static void ir_cal_guardar_punto(uint16_t tabla[][IR_CAL_PUNTOS], uint8_t canal, uint8_t punto)
 {
-    uint16_t valor = adc_leer_media(ir_adc_canal[canal], IR_CAL_MUESTRAS);
+    uint16_t valor;
     char     etiqueta[14];
+
+    /* El emisor del canal tiene que estar encendido **al congelar el punto**: sin él lo que se guarda
+       es la luz de la sala, y una curva de fondo no depende de la distancia. */
+    ir_cal_emisor(canal);
+    valor = adc_leer_media(ir_adc_canal[canal], IR_CAL_MUESTRAS);
 
     tabla[canal][punto] = valor;
 
@@ -2770,6 +2820,8 @@ static void ir_cal_estimar_vivo(const uint16_t tabla[][IR_CAL_PUNTOS])
     for (uint8_t canal = 0U; canal < IR_N_CANALES; canal++) {
         char etiqueta[14];
 
+        /* Un emisor cada vez (solo uno encendido): hay que conmutar por canal antes de leerlo. */
+        ir_cal_emisor(canal);
         cm[canal] = ir_cal_estimar_cm(tabla[canal], adc_leer_media(ir_adc_canal[canal],
                                                                   IR_MUESTRAS_ADC));
 
@@ -2812,6 +2864,7 @@ void App_Test_CalibracionIR(void)
         }
     }
 
+    ir_cal_emisor(canal);
     ir_cal_dibujar(canal, hechos[canal]);
 
     while (!BUTTONS_SalidaSolicitada()) {
@@ -2822,9 +2875,11 @@ void App_Test_CalibracionIR(void)
 
             if (evento == BTN_NUM_UP) {
                 canal = (uint8_t)((canal + 1U) % IR_N_CANALES);
+                ir_cal_emisor(canal);
                 ir_cal_dibujar(canal, hechos[canal]);
             } else if (evento == BTN_NUM_DOWN) {
                 canal = (uint8_t)((canal + IR_N_CANALES - 1U) % IR_N_CANALES);
+                ir_cal_emisor(canal);
                 ir_cal_dibujar(canal, hechos[canal]);
             } else if ((evento == BTN_NUM_OK) && (hechos[canal] < IR_CAL_PUNTOS)) {
                 ir_cal_guardar_punto(tabla, canal, hechos[canal]);
@@ -2835,6 +2890,7 @@ void App_Test_CalibracionIR(void)
                     canal = (uint8_t)((canal + 1U) % IR_N_CANALES);
                 }
 
+                ir_cal_emisor(canal);
                 ir_cal_dibujar(canal, hechos[canal]);
             }
         } else {
@@ -3867,6 +3923,14 @@ static void mov_test_publicar(const Motion_t *m, float teorico_mm, float teorico
     TELEM_SendFloat("MOV_Y", m->odo.y * 1000.0f);
     TELEM_SendFloat("MOV_E_D", (m->odo.distance * 1000.0f) - teorico_mm);
     TELEM_SendFloat("MOV_E_ANG", mov_test_error_angulo(MOTION_GetAngulo(m) - teorico_ang));
+    /* El ángulo del **giroscopio**, para comparar: no depende de las ruedas, así que si se separa de
+       `MOV_ANG` la que miente es la odometría. `MOV_GYROK` dice si ese número sirve de algo. */
+    TELEM_SendFloat("MOV_GYR", MOTION_GetGyroAngulo(m));
+    TELEM_SendInt("MOV_GYROK", (int32_t)MOTION_GyroDisponible(m));
+    TELEM_SendFloat("MOV_SESGO", MOTION_GetGyroSesgo(m));
+    /* La referencia del giro que está en uso, para que el registro diga **con cuál** se hizo cada
+       maniobra (orden `GYRO` de la consola). */
+    TELEM_SendInt("MOV_GMODO", (int32_t)MOTION_GetModoGiro());
     TELEM_SendInt("MOV_OK", (int32_t)ok);
 }
 
@@ -4095,6 +4159,13 @@ static void wf_test_publicar(const Motion_t *m, WF_Mano_t mano)
     TELEM_SendFloat("WF_X", m->odo.x * 1000.0f);
     TELEM_SendFloat("WF_Y", m->odo.y * 1000.0f);
     TELEM_SendFloat("WF_ANG", MOTION_GetAngulo(m));
+    /* El ángulo del giroscopio al lado del de la odometría, y no es un adorno: es lo que dice si el
+       robot se gira de verdad o es la odometría la que lo cree. `WF_GYROK` avisa si el dato vale. */
+    TELEM_SendFloat("WF_GYR", MOTION_GetGyroAngulo(m));
+    TELEM_SendInt("WF_GYROK", (int32_t)MOTION_GyroDisponible(m));
+    /* El **sesgo** en uso: un valor de decenas de °/s con el robot quieto delata que la calibración se
+       contaminó y que el lazo va a integrar el error todo el rato. */
+    TELEM_SendFloat("WF_SESGO", MOTION_GetGyroSesgo(m));
 }
 
 /**
@@ -4580,11 +4651,25 @@ void App_Test_Puente(void)
  */
 static const char *const walls_nombre[WALL_N] = { "FRENTE", "DERECHA", "IZQUIERDA" };
 
-/** @brief Diferencia de umbral que aplica cada pulsación de UP/DOWN en la prueba de paredes. */
-#define WALLS_PASO_UMBRAL   20
+/**
+ * @brief Diferencia de umbral que aplica cada pulsación de UP/DOWN en la prueba de paredes.
+ *
+ * Con el umbral de fábrica (200) este paso valía. Con los umbrales **medidos** (del orden de 1500) un
+ * paso de 20 obligaba a **70 pulsaciones** para recorrer el margen útil, así que sube a 100.
+ */
+#define WALLS_PASO_UMBRAL   100
 
 /** @brief Periodo de repintado de la pantalla de paredes, en ms. */
 #define WALLS_PANTALLA_MS   250U
+
+/**
+ * @brief Paso del bucle de la prueba de paredes, en ms.
+ *
+ * **No es el ritmo de la pantalla** (ese es `WALLS_PANTALLA_MS`), es el de **mirar los botones**. Tiene
+ * que ser bastante menor que el antirrebote (`BUTTONS_DEBOUNCE_MS`, 30 ms) o una pulsación corta cae
+ * entre dos muestreos y el firmware no llega a verla: el botón «no hace nada».
+ */
+#define WALLS_PANTALLA_PASO_MS  10U
 
 /**
  * @brief Pinta las tres paredes con su medida, su umbral y su veredicto.
@@ -4642,13 +4727,15 @@ static void walls_test_publicar(void)
  *
  * @note Botones: **OK** cambia de pared · **UP** sube el umbral · **DOWN** lo baja · **MENU** sale.
  * @note La medida (`WALL_n`) es `encendido − apagado`, así que **no depende de la luz de la sala**.
- * @note Los umbrales **no se guardan en Flash**: al reiniciar vuelven a `WALLS_UMBRAL_DEF`.
+ * @note Los umbrales **no se guardan en Flash**: al reiniciar vuelven a los de arranque, que son
+ *       **uno por pared** (`WALLS_UMBRAL_*_DEF` en `app/walls.h`).
  * @warning El robot debe estar **quieto y en su sitio**: se está midiendo lo que ve desde ahí.
  * @see `Documentacion/pruebas-bringup.md`.
  */
 void App_Test_Paredes(void)
 {
-    Wall_t seleccion = WALL_FRENTE;
+    Wall_t   seleccion  = WALL_FRENTE;
+    uint32_t t_pantalla = 0U;
 
     WALLS_Actualizar();
     app_pantalla_paredes(seleccion);
@@ -4658,6 +4745,11 @@ void App_Test_Paredes(void)
 
         WALLS_Actualizar();
 
+        /* Los botones se miran **a 100 Hz**, no cada 250 ms. Con el antirrebote a 30 ms y un bucle
+           lento, una pulsacion corta caia **entre dos muestreos y no existia**: el firmware no llegaba
+           a ver el nivel pulsado, y esta es justo la prueba que se maneja a base de pulsaciones.
+           El ritmo lento es cosa de la PANTALLA -- el `OLED_Update()` se lleva ~50 ms por I2C --, asi
+           que se repinta cada WALLS_PANTALLA_MS y se sigue dando vueltas a 10 ms. */
         BUTTONS_Update();
         evento = BUTTONS_GetEvent();
 
@@ -4671,10 +4763,16 @@ void App_Test_Paredes(void)
 
         if (evento != BTN_NUM_NINGUNO) {
             walls_test_publicar();
+
+            /* Al tocar un boton se repinta en el acto: un ajuste que no se ve, no se ha hecho. */
+            app_pantalla_paredes(seleccion);
+            t_pantalla = HAL_GetTick();
+        } else if ((HAL_GetTick() - t_pantalla) >= WALLS_PANTALLA_MS) {
+            app_pantalla_paredes(seleccion);
+            t_pantalla = HAL_GetTick();
         }
 
-        app_pantalla_paredes(seleccion);
-        HAL_Delay(WALLS_PANTALLA_MS);
+        HAL_Delay(WALLS_PANTALLA_PASO_MS);
     }
 }
 
