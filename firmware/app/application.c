@@ -262,11 +262,15 @@ static const Menu_Entrada_t menu_motores[] = {
        viene después (odometría, giros, flood fill). */
     { "MOVIMIENTO", MENU_TIPO_LANZAR,  App_Test_Movimiento, 0U },
     { "CALIBRAR",   MENU_TIPO_SUBMENU, NULL,                8U },
-    /* Retiradas: MOTORES ENCOD (5) · MIN M1/M2/AMBOS (2, 3) · COMPARA M · RAMPA PWM (9) ·
-       ODOMETRIA (19). Todas medidas, y sus números (µm/cuenta, trocha) viven ya en los ajustes:
-       repetirlas no cambiaría nada. */
+    /* Retiradas: MOTORES ENCOD (5) · MIN M1/M2/AMBOS (2, 3) · COMPARA M · RAMPA PWM (9).
+       Todas medidas, y sus números (µm/cuenta, trocha) viven ya en los ajustes: repetirlas no
+       cambiaría nada. */
     /* { "COMPARA M", MENU_TIPO_LANZAR, App_Test_ComparaMotores, 0U }, */
-    /* { "ODOMETRIA", MENU_TIPO_LANZAR, App_Test_Odometria,      0U }, */
+    /* ✅ **REACTIVADA el 2026-10-11**: es la **única prueba que no toca los motores**, así que las
+       ruedas quedan libres y el robot se puede empujar a mano. Es la única forma de comparar las TRES
+       referencias del giro —las **cuentas**, el **giroscopio** y una **marca en el suelo**— sin que el
+       patín arrastre, que es lo que contamina la comparación cuando el robot gira con los motores. */
+    { "ODOMETRIA",  MENU_TIPO_LANZAR,  App_Test_Odometria,   0U },
 };
 
 /**
@@ -3965,12 +3969,18 @@ void App_Test_PID(void)
  * @param odo Pose a publicar
  * @param um_izq Micrómetros acumulados de la rueda izquierda
  * @param um_der Micrómetros acumulados de la rueda derecha
+ * @param gyro Acumulador del giroscopio, para publicar su ángulo **al lado** del de la odometría
+ * @note `>ODO_TH` (ruedas) y `>ODO_GYR` (giroscopio) son **las dos referencias del mismo giro**, y
+ *       verlas juntas es el objetivo de la prueba: si al empujar 90° contra una marca del suelo no
+ *       coinciden, una de las dos miente y hay que averiguar cuál.
  */
-static void odom_test_enviar_telemetria(const Odometry_t *odo, int32_t um_izq, int32_t um_der)
+static void odom_test_enviar_telemetria(const Odometry_t *odo, int32_t um_izq, int32_t um_der,
+                                        const Motion_t *gyro)
 {
     TELEM_SendFloat("ODO_X", odo->x * 1000.0f);
     TELEM_SendFloat("ODO_Y", odo->y * 1000.0f);
     TELEM_SendFloat("ODO_TH", odo->theta * ODOM_TEST_RAD_A_GRADOS);
+    TELEM_SendFloat("ODO_GYR", MOTION_GetGyroAngulo(gyro));
     TELEM_SendFloat("ODO_D", odo->distance * 1000.0f);
     TELEM_SendInt("ODO_UM_L", um_izq);
     TELEM_SendInt("ODO_UM_R", um_der);
@@ -4026,6 +4036,10 @@ static void app_pantalla_odometria(const Odometry_t *odo, uint8_t congelado)
     OLED_Update();
 }
 
+/* Se declara aquí porque la prueba de odometría, que va antes en el fichero, ya la usa para anunciar
+   el sesgo del giroscopio al entrar. */
+static void mov_test_anunciar_giro(const Motion_t *m);
+
 /**
  * @brief Mueve la pose por odometría mientras se empuja el robot a mano (prueba 19).
  *
@@ -4050,13 +4064,23 @@ static void app_pantalla_odometria(const Odometry_t *odo, uint8_t congelado)
 void App_Test_Odometria(void)
 {
     Odometry_t odo;
+    Motion_t   gyro;         /* solo para el giroscopio: esta prueba no usa las primitivas */
     int32_t    um_izq_previo;
     int32_t    um_der_previo;
     uint32_t   t_telemetria;
     uint32_t   t_pantalla;
+    uint32_t   t_gyro;
     uint8_t    congelado = 0U;
 
     ODOM_Init(&odo, 0.0f, 0.0f, 0.0f);
+
+    /* El giroscopio se calibra al entrar, con el robot **parado**: `MOTION_Init()` promedia 50
+       muestras. Esta prueba no mueve los motores, así que las ruedas quedan libres y el robot se
+       empuja a mano — la única forma de medir el giro sin que el patín arrastre. */
+    MOTION_Init(&gyro, &motor1, &motor2);
+    mov_test_anunciar_giro(&gyro);
+    t_gyro = HAL_GetTick();
+
     um_izq_previo = get_encoder_left_micrometers();
     um_der_previo = get_encoder_right_micrometers();
     t_telemetria  = HAL_GetTick();
@@ -4095,9 +4119,16 @@ void App_Test_Odometria(void)
         um_der_previo = um_der;
 
         ahora = HAL_GetTick();
+
+        /* El giroscopio se integra aquí, al ritmo del bucle (1 ms) y con el mismo acumulador que las
+           primitivas: `MOTION_GyroActualizar()` **no cuenta el ángulo de otra manera**, y eso es lo
+           que se está poniendo a prueba. */
+        MOTION_GyroActualizar(&gyro, (float)(ahora - t_gyro) / 1000.0f);
+        t_gyro = ahora;
+
         if ((ahora - t_telemetria) >= 50U) {
             t_telemetria = ahora;
-            odom_test_enviar_telemetria(&odo, um_izq, um_der);
+            odom_test_enviar_telemetria(&odo, um_izq, um_der, &gyro);
         }
 
         if ((congelado == 0U) && ((ahora - t_pantalla) >= ODOM_TEST_PANTALLA_MS)) {
@@ -4146,26 +4177,64 @@ static float mov_test_error_angulo(float grados)
 }
 
 /**
- * @brief Publica por telemetría el estado de las primitivas.
+ * @brief Rumbo medido del robot [°]: el del **giroscopio** si está disponible.
  *
- * Los errores van **acumulados** desde que se lanzó la prueba: es lo que dice si un movimiento suelto
- * acierta (poco interesante) o si cuatro movimientos encadenados siguen acertando (lo que importa).
+ * ⚠️ **La odometría no sirve para juzgar el rumbo.** Su ángulo sale del **diferencial de las ruedas**,
+ * así que un robot que se **desliza** torciéndose —las dos ruedas girando igual y el chasis girando— le
+ * sale **invisible**: medido el 2026-10-11, en un avance de 180 mm el robot acabó **2,57° torcido**
+ * (lo vio el giroscopio) y la odometría decía **0,42°**, o sea «casi perfecto». Cuanto peor el fallo,
+ * mejor lo puntuaba.
  *
  * @param m Estructura de las primitivas
- * @param teorico_mm Distancia que debería llevar recorrida [mm]
- * @param teorico_ang Ángulo que debería llevar girado [°]
- * @param ok 1 si el último movimiento llegó dentro de tolerancia
+ * @return Rumbo en grados
  */
-static void mov_test_publicar(const Motion_t *m, float teorico_mm, float teorico_ang, uint8_t ok)
+static float mov_test_rumbo(const Motion_t *m)
+{
+    return (MOTION_GyroDisponible(m) != 0U) ? MOTION_GetGyroAngulo(m) : MOTION_GetAngulo(m);
+}
+
+/**
+ * @brief Anuncia el estado del giroscopio **antes** de que el robot se mueva.
+ *
+ * El sesgo es lo que hay que mirar antes de arrancar: si la calibración salió mal —el robot se estaba
+ * colocando mientras se medía— el avance se va de lado. Sin esto, ese número no llegaba hasta el primer
+ * movimiento, que es tarde. Se llama al entrar en las pruebas que mueven.
+ *
+ * @param m Estructura de las primitivas
+ */
+static void mov_test_anunciar_giro(const Motion_t *m)
+{
+    TELEM_SendInt("MOV_GYROK", (int32_t)MOTION_GyroDisponible(m));
+    TELEM_SendFloat("MOV_SESGO", MOTION_GetGyroSesgo(m));
+}
+
+/**
+ * @brief Publica por telemetría el estado de las primitivas.
+ *
+ * @param m Estructura de las primitivas
+ * @param disp_mm **Desplazamiento** del último movimiento [mm]
+ * @param teorico_mm Lo que debería haberse desplazado ese movimiento [mm]
+ * @param teorico_ang Ángulo que debería llevar girado [°], **acumulado** desde el principio
+ * @param ok 1 si el último movimiento llegó dentro de tolerancia
+ * @note El error de distancia se mide sobre el **desplazamiento**, no sobre el camino: `MOV_D` acumula
+ *       el valor absoluto del arco del centro, así que en cuanto el robot va y viene con las
+ *       correcciones de rumbo se infla. Medido el 2026-10-11: un avance nominal de 180 mm dio **202 mm
+ *       de camino** y **178 mm de desplazamiento**, y el error que se veía (+20 mm acumulado) era del
+ *       instrumento, no del robot.
+ * @note El error de **ángulo** sí va acumulado, porque el rumbo lo es.
+ */
+static void mov_test_publicar(const Motion_t *m, float disp_mm,
+                              float teorico_mm, float teorico_ang, uint8_t ok)
 {
     TELEM_SendFloat("MOV_D", m->odo.distance * 1000.0f);
+    TELEM_SendFloat("MOV_DISP", disp_mm);
     TELEM_SendFloat("MOV_ANG", MOTION_GetAngulo(m));
     /* La posición es lo único que dice si el robot **ha vuelto** al sitio: `MOV_D` es el camino
        recorrido y solo sube, así que en una ida y vuelta vale el doble y no informa de nada. */
     TELEM_SendFloat("MOV_X", m->odo.x * 1000.0f);
     TELEM_SendFloat("MOV_Y", m->odo.y * 1000.0f);
-    TELEM_SendFloat("MOV_E_D", (m->odo.distance * 1000.0f) - teorico_mm);
-    TELEM_SendFloat("MOV_E_ANG", mov_test_error_angulo(MOTION_GetAngulo(m) - teorico_ang));
+    TELEM_SendFloat("MOV_E_D", disp_mm - teorico_mm);
+    TELEM_SendFloat("MOV_E_ANG", mov_test_error_angulo(mov_test_rumbo(m) - teorico_ang));
     /* El ángulo del **giroscopio**, para comparar: no depende de las ruedas, así que si se separa de
        `MOV_ANG` la que miente es la odometría. `MOV_GYROK` dice si ese número sirve de algo. */
     TELEM_SendFloat("MOV_GYR", MOTION_GetGyroAngulo(m));
@@ -4178,26 +4247,31 @@ static void mov_test_publicar(const Motion_t *m, float teorico_mm, float teorico
 }
 
 /**
- * @brief Pinta el resultado de las primitivas: lo recorrido y el error acumulado.
+ * @brief Pinta el resultado de las primitivas: lo que llegó y con qué se mide el rumbo.
  *
  * @param m Estructura de las primitivas
- * @param teorico_mm Distancia que debería llevar recorrida [mm]
+ * @param disp_mm Desplazamiento del último movimiento [mm]
+ * @param teorico_mm Lo que debería haberse desplazado ese movimiento [mm]
  * @param teorico_ang Ángulo que debería llevar girado [°]
  */
-static void app_pantalla_movimiento(const Motion_t *m, float teorico_mm, float teorico_ang)
+static void app_pantalla_movimiento(const Motion_t *m, float disp_mm,
+                                    float teorico_mm, float teorico_ang)
 {
     char texto[24];
 
     OLED_Clear();
     oled_print_line(0U, "MOVIMIENTO");
 
-    snprintf(texto, sizeof(texto), "D %d E %d",
-             (int)(m->odo.distance * 1000.0f), (int)((m->odo.distance * 1000.0f) - teorico_mm));
+    snprintf(texto, sizeof(texto), "DIS %d E %d",
+             (int)disp_mm, (int)(disp_mm - teorico_mm));
     oled_print_line(1U, texto);
 
-    snprintf(texto, sizeof(texto), "ANG %d E %d",
-             (int)MOTION_GetAngulo(m),
-             (int)mov_test_error_angulo(MOTION_GetAngulo(m) - teorico_ang));
+    /* Se dice **con qué se mide**: el rumbo es el del giroscopio cuando lo hay y el de la odometría
+       cuando no, y no valen lo mismo (ver `mov_test_rumbo()`). */
+    snprintf(texto, sizeof(texto), "%s %d E %d",
+             (MOTION_GyroDisponible(m) != 0U) ? "GYR" : "ODO",
+             (int)mov_test_rumbo(m),
+             (int)mov_test_error_angulo(mov_test_rumbo(m) - teorico_ang));
     oled_print_line(2U, texto);
 
     oled_print_line(3U, "OK:180 UP:90 DN:90");
@@ -4279,6 +4353,13 @@ uint8_t APP_MOV_Recoger(App_Movimiento_t *cual, uint8_t *repeticiones)
 static void mov_test_ejecutar(Motion_t *m, App_Movimiento_t cual,
                               float *teorico_mm, float *teorico_ang)
 {
+    float   teorico_antes = *teorico_mm;
+    float   x0_mm         = m->odo.x * 1000.0f;
+    float   y0_mm         = m->odo.y * 1000.0f;
+    float   rumbo0        = m->odo.theta;
+    float   dx_mm;
+    float   dy_mm;
+    float   disp_mm;
     uint8_t ok;
 
     switch (cual) {
@@ -4302,8 +4383,21 @@ static void mov_test_ejecutar(Motion_t *m, App_Movimiento_t cual,
         return;
     }
 
-    mov_test_publicar(m, *teorico_mm, *teorico_ang, ok);
-    app_pantalla_movimiento(m, *teorico_mm, *teorico_ang);
+    /* Lo que el robot **se ha desplazado en la dirección en la que iba**, que es lo que dice si ha
+       llegado al centro de la celda: el camino recorrido (`MOV_D`) se infla en cuanto el centro va y
+       viene con las correcciones de rumbo (ver la nota de `mov_test_publicar()`).
+
+       Se **proyecta** sobre el rumbo inicial en vez de tomar el módulo del vector, por dos razones: el
+       módulo también se infla con el serpenteo, y sobre todo **pierde el signo**, así que al retroceder
+       daría `+178` contra un teórico de `−180` y el error saldría de 358 mm. ⚠️ Y no se usa `sqrtf()`
+       a propósito: como la prueba de odometría está fuera del menú, `sqrtf` **no estaba enlazado** y
+       meterlo costaba **2,7 KB de Flash** por un número de pantalla. */
+    dx_mm   = (m->odo.x * 1000.0f) - x0_mm;
+    dy_mm   = (m->odo.y * 1000.0f) - y0_mm;
+    disp_mm = (dx_mm * cosf(rumbo0)) + (dy_mm * sinf(rumbo0));
+
+    mov_test_publicar(m, disp_mm, *teorico_mm - teorico_antes, *teorico_ang, ok);
+    app_pantalla_movimiento(m, disp_mm, *teorico_mm - teorico_antes, *teorico_ang);
 }
 
 /**
@@ -4333,12 +4427,16 @@ void App_Test_Movimiento(void)
 
     app_motion_iniciar(&m);
 
+    /* El sesgo del giroscopio, **antes** de moverse: si la calibración salió mal, aquí es donde hay
+       que verlo, no después del primer avance. */
+    mov_test_anunciar_giro(&m);
+
     /* A partir de aquí la consola puede mandar movimientos, y hasta aquí no: entrar en la prueba no
        debe ejecutar una orden que se quedara escrita antes. */
     app_mov_activo   = 1U;
     app_mov_peticion = APP_MOV_NINGUNO;
 
-    app_pantalla_movimiento(&m, teorico_mm, teorico_ang);
+    app_pantalla_movimiento(&m, 0.0f, 0.0f, 0.0f);
 
     while (!BUTTONS_SalidaSolicitada()) {
         App_Movimiento_t pedido;
@@ -4476,6 +4574,9 @@ void App_Test_WallFollower(void)
     uint8_t   marcha = 0U;
 
     app_motion_iniciar(&m);
+
+    /* El sesgo del giroscopio, antes de moverse (ver `mov_test_anunciar_giro()`). */
+    mov_test_anunciar_giro(&m);
 
     WF_Init(&m, mano);
 

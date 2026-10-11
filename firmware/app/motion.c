@@ -517,6 +517,24 @@ float MOTION_GetAngulo(const Motion_t *m)
 }
 
 /**
+ * @brief Integra el giroscopio con el mismo acumulador que usan las primitivas.
+ *
+ * Existe para las pruebas que necesitan el ángulo del giroscopio **sin** pasar por las primitivas de
+ * movimiento: la de odometría, que se hace **empujando el robot a mano** y con las ruedas libres. Es la
+ * única forma de comparar las **cuentas**, el **giroscopio** y una **marca en el suelo** sin que el
+ * patín arrastre. El acumulador es el mismo `motion_gyro_leer()`: **no hay dos maneras de contar el
+ * ángulo**, que es justo lo que se está poniendo a prueba.
+ *
+ * @param m Estructura de las primitivas (aquí solo se usa la parte del giroscopio)
+ * @param dt Segundos desde la llamada anterior
+ * @note El sesgo hay que haberlo calibrado antes (`MOTION_Init()`, con el robot parado).
+ */
+void MOTION_GyroActualizar(Motion_t *m, float dt)
+{
+    (void)motion_gyro_leer(m, dt);
+}
+
+/**
  * @brief Ángulo girado según el **giroscopio**, acumulado desde el último `MOTION_Init()` [°].
  */
 float MOTION_GetGyroAngulo(const Motion_t *m)
@@ -705,6 +723,30 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
 }
 
 /**
+ * @brief Periodo del lazo **exterior** del giro [ms].
+ *
+ * ⚠️ Es **1 ms, no 10** como el del avance, y el motivo tiene número: **el error de un giro es el
+ * retardo del lazo multiplicado por la velocidad angular**.
+ *
+ * Con el lazo exterior a 10 ms más los lazos de rueda (~10 ms de ventana del filtro) el retardo total
+ * es de **~20 ms**; girando a 130 °/s eso son **2,6° de adelanto perdido**, que es justo lo medido el
+ * 2026-10-11 (−3,0° y −1,3° en giros de 90°). A 1 ms el lazo exterior deja de mandar y el retardo es
+ * el de las ruedas ⇒ el error de retardo baja a **~0,3°**.
+ *
+ * 📌 **La comparación con ZoroBot3** (ver [firmwares-referencia.md](../Documentacion/firmwares-referencia.md))
+ * aclara qué es lo que sobra: ellos giran a velocidad angular constante y **paran comparando el
+ * ángulo**, sin ningún mínimo artificial, y pueden hacerlo porque su giroscopio va a **1 666 Hz** y el
+ * lazo es muy rápido. Nosotros giramos con la velocidad proporcional al error (que aterriza suave) y
+ * con un mínimo de 35 mm/s para vencer la fricción estática: **ese mínimo no es el problema**, porque
+ * a 35 mm/s el robot ya gira y lo único que hace es limitar la velocidad mínima; el problema es que
+ * el lazo tarda 20 ms en enterarse de que ha llegado.
+ *
+ * @note El avance **no** necesita esto: aterriza a 50 mm/s y 20 ms de retardo son **1 mm**, dentro de
+ *       la tolerancia de 3 mm. Solo se cambia el giro.
+ */
+#define MOTION_GIRO_PASO_MS   1U
+
+/**
  * @brief Gira sobre el centro el ángulo pedido.
  *
  * La velocidad se pide proporcional al error de ángulo, con un **mínimo** que vence la fricción
@@ -717,6 +759,7 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
  * @note El ángulo se mide con el **giroscopio** (no arrastra el deslizamiento del pivote); si la IMU
  *       no responde se cae al respaldo por odometría.
  * @see `MOTION_GYRO_SIGNO_Z` y el convenio de signo, comunes al avance: positivo = izquierda.
+ * @see `MOTION_GIRO_PASO_MS`: por qué este lazo va a 1 ms y el del avance a 10.
  */
 uint8_t MOTION_Girar(Motion_t *m, float grados)
 {
@@ -885,7 +928,9 @@ uint8_t MOTION_Girar(Motion_t *m, float grados)
            dθ = (ds_der − ds_izq) / L. */
         motion_paso(m, -vel + centro_mm_s, vel + centro_mm_s, dt);
 
-        HAL_Delay(MOTION_PASO_MS);
+        /* 1 ms y no 10: ver `MOTION_GIRO_PASO_MS`. El error de un giro se paga en retardo por
+           velocidad angular, y aquí es donde se paga. */
+        HAL_Delay(MOTION_GIRO_PASO_MS);
 
         TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
         t_lazo = TIM_Cuentas();

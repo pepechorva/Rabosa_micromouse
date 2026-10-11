@@ -196,7 +196,7 @@ ni comparar. Con esta orden se cambia un número y se repite la maniobra en segu
 | `GYRO KP <mm/s por °>` | Proporcional al error de ángulo | 4,0 |
 | `GYRO KI <mm/s por (°·s)>` | Integral, con anti-windup a 30 mm/s | 0,0 |
 | `GYRO KD <mm/s por °/s>` | Amortiguación (frena según la velocidad angular) | 0,3 |
-| `GYRO ESC <adimensional>` | **Escala del giroscopio** | 1,20 |
+| `GYRO ESC <adimensional>` | **Escala del giroscopio** | 1,01 |
 | `GYRO VMIN <mm/s>` | Mínimo de velocidad **con el robot girando** | 35,0 |
 | `GYRO VARR <mm/s>` | Mínimo de velocidad **para arrancar del todo** | 40,0 |
 | `GYRO VDPS <°/s>` | A partir de qué velocidad se considera que «ya rueda» | 0,0 |
@@ -204,9 +204,11 @@ ni comparar. Con esta orden se cambia un número y se repite la maniobra en segu
 Contesta con `>GYR_KP`, `>GYR_KI`, `>GYR_KD`, `>GYR_ESC`, `>GYR_VMIN`, `>GYR_VARR`, `>GYR_VDPS` y
 `>GYRO_MODO`. Valor fuera de rango: `>CMD_ERR:3`. Parámetro desconocido: `>CMD_ERR:1`.
 
-> ✅ **Los siete valores medidos el 2026-10-02 están fijados en `app/motion.h`**, así que **un reinicio
-> no los pierde** — a diferencia de `PID`, que vuelve a sus `_DEF` al arrancar. La orden los cambia en
-> RAM, pero el punto de partida ya es el bueno.
+> ✅ **Los siete valores están fijados en `app/motion.h`**, así que **un reinicio no los pierde** — a
+> diferencia de `PID`, que vuelve a sus `_DEF` al arrancar. La orden los cambia en RAM, pero el punto de
+> partida ya es el bueno. Se midieron el **2026-10-02** (lazo, amortiguación y mínimos) y la **escala el
+> 2026-10-11**, que pasó de 1,20 a **1,01** al comprobarla contra una marca en el suelo: el detalle está en
+> [pruebas-bringup.md §16](./pruebas-bringup.md).
 
 #### Cómo se diagnostica con estos números
 

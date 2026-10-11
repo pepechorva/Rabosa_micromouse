@@ -49,7 +49,7 @@ resolución nueva.
 | `RAMPA PWM` | 9 | Planta de cada motor en lazo abierto, rueda a rueda | ⛔ retirada |
 | `MOTORES → CALIBRAR → UM/CUENTA` | — | µm/cuenta **por rueda** (hoy hay un valor común) | ✅ reactivada |
 | `MOTORES → CALIBRAR → PPR A MANO` | — | PPR y reducción por rueda, por si el µm/cuenta no cuadra | ✅ reactivada |
-| `ODOMETRIA` | 19 | Trocha efectiva y comprobación del cuadrado de 4 × 300 mm | ⛔ retirada |
+| `ODOMETRIA` | 19 | Trocha efectiva, cuadrado de 4 × 300 mm y **contraste del giroscopio** con las cuentas | ✅ **reactivada el 2026-10-11**, con `>ODO_GYR` |
 | `IR → UMBRALES` | 21 | Umbral de pared (bloque 2) | ✅ activa |
 | `IR → ENCENDER` | 14 | Alineado del apuntado de los cuatro focos (bloque 2) | ✅ activa |
 | `IR → LECTURA` | — | Matriz 4×4 emisor↔receptor: **crosstalk** (bloque 2) | ✅ activa |
