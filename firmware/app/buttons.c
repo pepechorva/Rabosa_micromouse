@@ -140,12 +140,19 @@ uint8_t BUTTONS_GetMask(void)
 }
 
 /**
- * @brief Devuelve la primera pulsación pendiente y la consume.
+ * @brief Devuelve la primera pulsación pendiente **por sondeo** y la consume.
  *
  * Si hay dos botones pulsados a la vez se sirve el de bit más bajo y el otro queda para la llamada
  * siguiente, de modo que una pulsación nunca se pierde.
  *
- * @return Potencia de dos del botón (1 MENU · 2 UP · 4 DOWN · 8 OK), o 0 si no había ninguna
+ * ⚠️ **MENU NO sale por aquí, y es a propósito.** MENU va por interrupción y su bandera la consume
+ * `BUTTONS_SalidaSolicitada()`, que es lo que espera el `while` de las pruebas. Si `GetEvent()`
+ * consultara esa bandera —como hizo hasta el 2026-10-11— se la **comía antes** de que el bucle la
+ * viera, porque los bucles de prueba llaman a `GetEvent()` en el cuerpo y al `while` después. Medido:
+ * `SALIR` por consola no sacaba de la prueba 20 y el MENU físico salía solo algunas veces, según el
+ * orden de las llamadas. Quien necesite MENU como botón tiene `BUTTONS_SalidaSolicitada()`.
+ *
+ * @return Potencia de dos del botón (2 UP · 4 DOWN · 8 OK), o 0 si no había ninguna
  */
 uint8_t BUTTONS_GetEvent(void)
 {
@@ -154,10 +161,6 @@ uint8_t BUTTONS_GetEvent(void)
             buttons[i].pressed_edge = 0;
             return (uint8_t)(1U << i);
         }
-    }
-
-    if (BUTTONS_SalidaSolicitada()) {
-        return BTN_NUM_MENU;
     }
 
     return BTN_NUM_NINGUNO;
@@ -172,23 +175,39 @@ uint8_t BUTTONS_GetEvent(void)
  * acepta una pulsación por ventana.
  *
  * @return 1 si había una pulsación pendiente (la consume)
+ *
+ * @warning **La bandera se LATCHA, y no latcharla era el fallo hasta el 2026-10-11.**
+ *          `GPIO_MenuBtnIRQ_Pendiente()` **borra el contador al leerlo**, así que la versión anterior
+ *          perdía pulsaciones por dos caminos: (a) si el antirrebote rechazaba la consulta, la
+ *          pulsación ya se había borrado y se perdía para siempre; y (b) cualquier otra consulta de la
+ *          misma vuelta del bucle se llevaba el contador antes de que el `while` de la prueba
+ *          preguntara. Con el latch, el flanco **espera** a que lo recoja quien pregunta.
  */
 uint8_t BUTTONS_SalidaSolicitada(void)
 {
-    static uint32_t t_ultima = 0U;
+    static uint8_t  pendiente = 0U;
+    static uint32_t t_ultima  = 0U;
     uint32_t        ahora;
 
-    if (GPIO_MenuBtnIRQ_Pendiente() == 0U) {
+    /* Lo que haya contado la interrupción se guarda: leerlo borra el contador del HAL, y esta función
+       puede ser la segunda en preguntar en la misma vuelta. */
+    if (GPIO_MenuBtnIRQ_Pendiente() != 0U) {
+        pendiente = 1U;
+    }
+
+    if (pendiente == 0U) {
         return 0U;
     }
 
     ahora = HAL_GetTick();
 
     if ((t_ultima != 0U) && ((ahora - t_ultima) < BUTTONS_SALIDA_DEBOUNCE_MS)) {
+        pendiente = 0U;   /* es el rebote del contacto que ya se dio por bueno */
         return 0U;
     }
 
-    t_ultima = ahora;
+    pendiente = 0U;
+    t_ultima  = ahora;
     return 1U;
 }
 
@@ -197,10 +216,16 @@ uint8_t BUTTONS_SalidaSolicitada(void)
  *
  * Se marca **la misma bandera que marca la interrupción del botón**, así que el camino es idéntico:
  * `BUTTONS_SalidaSolicitada()` no distingue de dónde vino.
+ *
+ * @warning **Hasta el 2026-10-11 esto no hacía nada.** Llamaba a `GPIO_MenuBtnIRQ_Handler()`, que
+ *          despacha por `HAL_GPIO_EXTI_IRQHandler()` — y esa **solo llama al callback si el flag de
+ *          EXTI está puesto**, cosa que en un `SALIR` por consola no ocurre porque no hay flanco. El
+ *          contador no se incrementaba: la orden quedaba en el acuse `>CMD_SALIR:1` y la prueba
+ *          seguía corriendo. Ver `GPIO_MenuBtnIRQ_Solicitar()`.
  */
 void BUTTONS_SolicitarSalida(void)
 {
-    GPIO_MenuBtnIRQ_Handler();
+    GPIO_MenuBtnIRQ_Solicitar();
 }
 
 /**

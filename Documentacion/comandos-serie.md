@@ -325,9 +325,18 @@ Tres matices que conviene conocer:
 1. **Solo desde el menú.** Con una prueba en curso, `TEST` se rechaza con `>CMD_ERR:3`: primero
    `SALIR`. Saltar de una prueba a otra sin salir dejaría vivos los motores de la anterior.
 2. **`SALIR` solo se lee donde se lee la consola.** Las pruebas que no llaman a `CONSOLE_Update()` en
-   su bucle (todas menos la 12, la 18 y la 20) no se enteran hasta que terminan solas.
+   su bucle (todas menos la 12, la 18, la 20 y la 24) no se enteran hasta que terminan solas.
 3. **La etiqueta es la del menú**, no el número de prueba: `TEST SINTONIA`, no `TEST 18`. Se busca en
    todas las tablas de submenú una fila de tipo `LANZAR` con ese nombre.
+
+> [!WARNING] **`SALIR` estuvo sin funcionar desde que se escribió hasta el 2026-10-11**, y merece la
+> pena saber por qué: `BUTTONS_SolicitarSalida()` llamaba a `GPIO_MenuBtnIRQ_Handler()`, que despacha
+> por `HAL_GPIO_EXTI_IRQHandler()` — y esa función **solo llama al callback si el flag de EXTI está
+> puesto**, cosa que en una orden de consola no ocurre porque **no hay flanco**. El contador no subía:
+> la orden llegaba, la consola acusaba `>CMD_SALIR:1` y el robot seguía. Ahora existe
+> `GPIO_MenuBtnIRQ_Solicitar()`, que llama al callback directamente.
+> 📌 **Lección**: la rutina de servicio de una interrupción **atiende** un flanco; no sirve para
+> **inventarlo**.
 
 > [!TIP] Por qué esto vive en la consola y no emulando los botones
 > El `IDR` de un GPIO en STM32 es de **solo lectura**, así que falsificar OK/UP/DOWN desde el
@@ -338,9 +347,16 @@ depurador obligaría a reconfigurar el pin como salida —invasivo, y con el bot
 > nada de eso, y además sirve para cualquiera.
 
 > [!NOTE] La vía buena para trabajar es el **cable serie**, no el puente WiFi
-> El puente es cómodo para ver telemetría, pero **se cae con cada reflasheo** y hay que volver a
-> entrar en `TELEMETRIA → PUENTE WIFI` con los botones. El cable no: aguanta el reflasheo, así que
+> El puente es cómodo para ver telemetría, pero **suele caerse con cada reflasheo**: al resetear el MCU
+> el ESP sale del modo transparente y el socket que queda en el PC es un zombi, así que hay que volver
+> a entrar en `TELEMETRIA → PUENTE WIFI` con los botones. El cable no: aguanta el reflasheo, así que
 > permite iterar (grabar → lanzar → medir → cambiar una ganancia → repetir) sin tocar el robot.
+>
+> ✅ **Pero no es una ley, y comprobarlo cuesta dos segundos.** El socket TCP vive en el **ESP**, que
+> es **otro chip**: si solo se resetea el STM32, el socket **sigue abierto** y la telemetría sigue
+> llegando. Medido el 2026-10-11 en varios flasheos: cuando sobrevive se ven las líneas de arranque
+> (`>RESET:n`, `>BOOT:1`, `>APP_EST:1`) sin tocar nada. **Antes de rehacer el puente, mira si llega
+> telemetría.**
 
 ### Medir el retardo del lazo (`LAZO`)
 

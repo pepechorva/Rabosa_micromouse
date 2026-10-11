@@ -75,8 +75,14 @@ reflashear durante la campaña:
 | `LED 0\|1\|TOGGLE` | **Prueba de vida de la consola**: si esto no responde, el problema es la recepción |
 | `HELP` · `?` | Publica batería + PID + LED |
 
-> ⚠️ **Cada reflasheo tumba el puente WiFi.** Hay que volver a entrar en `TEST → VARIOS → WIFI AL PC`
-> (prueba 24) antes de fiarse de una telemetría. Si dudas, `LED 1` lo dice en un segundo.
+> ⚠️ **Cada reflasheo suele tumbar el puente WiFi.** Hay que volver a entrar en
+> **`TELEMETRIA → PUENTE WIFI`** (prueba 24) antes de fiarse de una telemetría. Si dudas, `LED 1` lo
+> dice en un segundo.
+>
+> ✅ **Comprueba antes de rehacerlo**: el socket TCP vive en el **ESP**, que es otro chip, así que si
+> solo se ha reseteado el STM32 el enlace **puede seguir vivo** (medido el 2026-10-11 en varios
+> flasheos). Se reconoce porque aparecen las líneas de arranque (`>RESET:n`, `>BOOT:1`, `>APP_EST:1`)
+> sin tocar nada.
 
 ---
 

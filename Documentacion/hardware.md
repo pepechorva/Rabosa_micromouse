@@ -1170,7 +1170,13 @@ justo lo que necesitan los emisores IR `WALL L1/L2`.
 | **OK** | PA12 | A | Pin limpio |
 
 Numeración del evento (`BUTTONS_GetEvent()`, potencias de dos):
-**1 = MENU · 2 = UP · 4 = DOWN · 8 = OK**.
+**2 = UP · 4 = DOWN · 8 = OK**.
+
+> [!IMPORTANT] **MENU no sale por `BUTTONS_GetEvent()`** desde el 2026-10-11, aunque su número siga
+> reservado como `1`. Quien quiera MENU llama a **`BUTTONS_SalidaSolicitada()`**, que es lo que espera
+> el `while` de las pruebas: si el evento lo consumiera también, MENU dejaría de sacar de las
+> pruebas, porque el `GetEvent()` del cuerpo del bucle se comería la bandera antes de que el `while`
+> la viera. El menú es el único sitio que lo consume como evento, y lo hace explícitamente.
 
 `PC13` **sigue siendo el LED onboard** y `PA15` queda libre.
 
@@ -1222,10 +1228,11 @@ BUTTONS_Update();                    /* cada 1 ms */
 if (BUTTONS_WasPressed(BTN_OK)) { … } /* evento: se consume al leerlo */
 if (BUTTONS_IsPressed(BTN_UP))  { … } /* estado mantenido */
 uint8_t mask = BUTTONS_GetMask();     /* bit0 MENU · bit1 UP · bit2 DOWN · bit3 OK */
-uint8_t ev   = BUTTONS_GetEvent();    /* pulsado: 1 MENU · 2 UP · 4 DOWN · 8 OK · 0 ninguno */
+uint8_t ev   = BUTTONS_GetEvent();    /* pulsado: 2 UP · 4 DOWN · 8 OK · 0 ninguno */
 ```
-Los eventos usan **potencias de dos** (1, 2, 4, 8), los mismos valores que los bits de la
-máscara: es fácil comparar `if (ev & BTN_NUM_OK)` o `if (mask & BTN_NUM_MENU)`.
+Los eventos usan **potencias de dos** (2, 4, 8), los mismos valores que los bits de la
+máscara: es fácil comparar `if (ev & BTN_NUM_OK)` o `if (mask & BTN_NUM_MENU)`. ⚠️ **MENU está en la
+máscara pero no en el evento**: ver el aviso de arriba.
 ---
 
 ### 4.9 Pantalla OLED (SSD1306 128×32)

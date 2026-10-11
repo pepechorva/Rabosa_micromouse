@@ -175,6 +175,14 @@ static void menu_fsm_paso(void)
                repite la transición en bucle. */
             menu_boton = BUTTONS_GetEvent();
 
+            /* MENU no llega por `BUTTONS_GetEvent()` (ver `buttons.h`): su bandera la consume
+               `BUTTONS_SalidaSolicitada()`, y en el menú este es el sitio donde toca consumirla. Si se
+               dejara sin consumir, la bandera sobreviviría hasta el `while` de la primera prueba que
+               se lanzara y esa prueba saldría sola en la primera vuelta. */
+            if ((menu_boton == BTN_NUM_NINGUNO) && (BUTTONS_SalidaSolicitada() != 0U)) {
+                menu_boton = BTN_NUM_MENU;
+            }
+
             if (menu_boton == BTN_NUM_UP)   MENU_GOTO(MOVIENDO);
             if (menu_boton == BTN_NUM_DOWN) MENU_GOTO(MOVIENDO);
             if (menu_boton == BTN_NUM_MENU) MENU_GOTO(VOLVIENDO);

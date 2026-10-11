@@ -112,7 +112,9 @@ uint8_t BUTTONS_GetEvent(void);
  * respondería dentro de una prueba. Con la interrupción, la pulsación se cuenta
  * siempre y basta con que la prueba pregunte aquí para terminar.
  *
- * Es también la vía por la que BUTTONS_GetEvent() devuelve BTN_NUM_MENU.
+ * ⚠️ **Esta es la ÚNICA vía de MENU**: `BUTTONS_GetEvent()` no lo devuelve, porque si lo hiciera se
+ * comería la bandera antes de que el `while` de una prueba la viera y MENU dejaría de sacar de las
+ * pruebas. Quien trate MENU como un botón más —el menú, para volver al nivel de arriba— llama aquí.
  *
  * @return 1 si había una pulsación pendiente (la consume), 0 si no.
  *         Un contacto mecánico puede contar varias veces: solo se acepta una

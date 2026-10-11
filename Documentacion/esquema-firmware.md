@@ -78,7 +78,7 @@ flowchart TD
 | `walls.c` | Tres paredes (`FRENTE = max(R0,R3)`, `DERECHA = R1`, `IZQUIERDA = R2`) con umbral por pared e histéresis. La medida es **encendido − apagado** | `WALLS_Actualizar()`, `WALLS_Hay()`, `WALLS_SetUmbral()` |
 | `wall_follower.c` | Navegación por la mano: decide en el **centro de la celda** y ejecuta con `motion.c` | `WF_Paso()`, `WF_GetDecision()`, `WF_GetAtascado()` |
 | `oled.c` | SSD1306 128×32 por I²C1, framebuffer propio y fuente 5×7 | `OLED_Print()`, `OLED_Update()` |
-| `buttons.c` | 4 botones por sondeo; **MENU va por interrupción** y por eso responde siempre | `BUTTONS_GetEvent()`, `BUTTONS_SalidaSolicitada()` |
+| `buttons.c` | 4 botones por sondeo; **MENU va por interrupción** y por eso responde siempre. ⚠️ **MENU no sale por `BUTTONS_GetEvent()`**: su bandera la consume `BUTTONS_SalidaSolicitada()`, y el menú es quien la consume cuando toca | `BUTTONS_GetEvent()` (UP/DOWN/OK), `BUTTONS_SalidaSolicitada()` (MENU) |
 | `trace.c` | Anillo en **RAM**: 512 muestras × 4 canales, para depurar **sin cable** | `TRACE_Guarda()`, `TRACE_Descargar()` |
 | `fsm.h` | Patrón de FSM del proyecto (*header-only*), sin código propio | `fsm`, `fsmstate()`, `fsmgoto()`, `fsmexit` |
 

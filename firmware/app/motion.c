@@ -192,7 +192,7 @@ float MOTION_GetGiroGanancia(Motion_GiroGanancia_t cual)
    las usa para refinar el sesgo aprovechando que el robot está frenado. */
 static uint8_t motion_gyro_muestrear(float *media);
 static void    motion_gyro_calibrar(Motion_t *m);
-static void    motion_gyro_refinar(Motion_t *m, float suma, uint8_t n);
+static void    motion_gyro_refinar(Motion_t *m, float suma, float suma2, uint8_t n);
 
 /**
  * @brief Un paso de las primitivas: mide, mueve la pose, calcula el duty y lo aplica.
@@ -243,6 +243,7 @@ static void motion_asentar(Motion_t *m)
     uint32_t t_inicio = HAL_GetTick();
     uint32_t t_ultimo = t_inicio;
     float    suma_gyro     = 0.0f;
+    float    suma2_gyro    = 0.0f;
     uint8_t  muestras_gyro = 0U;
 
     /* Se **suelta el pedal de golpe**, y no es un detalle. El integrador del PID venía guardando el
@@ -280,7 +281,8 @@ static void motion_asentar(Motion_t *m)
            decían 165°). */
         if ((ahora - t_inicio) >= (MOTION_ASENTAR_MS / 2U)) {
             if (IMU_Read(&imu)) {
-                suma_gyro += imu.gz;
+                suma_gyro  += imu.gz;
+                suma2_gyro += imu.gz * imu.gz;
                 muestras_gyro++;
             }
         }
@@ -296,7 +298,7 @@ static void motion_asentar(Motion_t *m)
     DRV8833_Brake(m->motor_izq);
     DRV8833_Brake(m->motor_der);
 
-    motion_gyro_refinar(m, suma_gyro, muestras_gyro);
+    motion_gyro_refinar(m, suma_gyro, suma2_gyro, muestras_gyro);
 }
 
 /**
@@ -401,11 +403,13 @@ static void motion_gyro_calibrar(Motion_t *m)
  *
  * @param m Estructura de las primitivas
  * @param suma Suma de las muestras tomadas con el robot frenado [°/s]
+ * @param suma2 Suma de los cuadrados de esas muestras [(°/s)²]
  * @param n Número de muestras
  */
-static void motion_gyro_refinar(Motion_t *m, float suma, uint8_t n)
+static void motion_gyro_refinar(Motion_t *m, float suma, float suma2, uint8_t n)
 {
     float media;
+    float varianza;
     float paso;
 
     if ((m->gyro_ok == 0U) || (n < MOTION_GYRO_REFINAR_MIN)) {
@@ -413,6 +417,19 @@ static void motion_gyro_refinar(Motion_t *m, float suma, uint8_t n)
     }
 
     media = suma / (float)n;
+
+    /* ⚠️ **«Frenado» no es lo mismo que «quieto», y el tope del paso no los distingue.** Medido el
+       2026-10-11: con el pivote desplazándose ~8 mm el robot **todavía cede** cuando empieza la ventana,
+       y esa inercia entraba como sesgo. El sesgo saltaba **+0,6 °/s por giro** y correlacionaba con la
+       calidad del pivote: −8,5 mm daban +0,64, −3,3 mm daban +0,51 y −0,8 mm daban 0,00. El tope de
+       ±20 °/s no protege de eso, porque 0,6 cabe de sobra.
+       Se descarta por **dispersión**, el mismo criterio que ya usa `motion_gyro_muestrear()`: con el
+       robot parado de verdad esto es ruido (centésimas) y si aún se mueve se dispara. */
+    varianza = (suma2 / (float)n) - (media * media);
+
+    if (varianza > (MOTION_GYRO_REFINAR_DISP_MAX * MOTION_GYRO_REFINAR_DISP_MAX)) {
+        return;
+    }
 
     /* El filtro es lento **y el paso está topado**: una medida suelta —o una que se haya colado con el
        robot aún moviéndose— no puede dar la vuelta al sesgo de golpe. Es la diferencia entre

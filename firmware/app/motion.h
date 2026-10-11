@@ -293,6 +293,10 @@
  * movimientos bajó a ≈−1 °/s ⇒ un filtro lento iba **persiguiendo** un blanco que se mueve. La muestra
  * del asentamiento es buena (robot frenado y solo la segunda mitad), así que se toma tal cual: así el
  * sesgo **sigue** la deriva en vez de quedarse atrás.
+ *
+ * @warning **Que la muestra sea buena lo garantiza `MOTION_GYRO_REFINAR_DISP_MAX`, no este peso.** El
+ *          2026-10-11 se midió que «frenado» no es «quieto»: sin la puerta de dispersión el sesgo se
+ *          contaminaba **+0,6 °/s por giro**.
  */
 #define MOTION_GYRO_REFINAR_ALFA 1.0f
 
@@ -300,14 +304,29 @@
 #define MOTION_GYRO_REFINAR_MIN 8U
 
 /**
+ * @brief Dispersión máxima del asentamiento para creerse su media [°/s].
+ *
+ * **Es la puerta que de verdad protege el sesgo.** «El robot está frenado» no es lo mismo que «el robot
+ * está quieto»: medido el 2026-10-11, con el pivote desplazándose ~8 mm el robot todavía cede cuando
+ * empieza la ventana y esa inercia entraba como sesgo (+0,6 °/s, correlacionado con el desplazamiento:
+ * −8,5 mm → +0,64 · −3,3 mm → +0,51 · −0,8 mm → 0,00). Con el robot parado de verdad la dispersión es
+ * de centésimas, así que este umbral separa los dos casos con un margen enorme. Es el mismo criterio
+ * —y el mismo orden de magnitud— que `MOTION_GYRO_SESGO_DISP_MAX` usa en la calibración de entrada.
+ */
+#define MOTION_GYRO_REFINAR_DISP_MAX 0.5f
+
+/**
  * @brief Cambio máximo que un solo refinamiento puede darle al sesgo [°/s].
  *
- * Es la red que protege: aunque una medida se cuele con el robot aún moviéndose, el sesgo no puede dar
- * la vuelta de un golpe. Medido el 2026-10-02: sin este
- * tope, muestrear al principio del asentamiento (con el robot girando por inercia tras el frenado)
- * dejó el sesgo falseado y **el giro de media vuelta dejó de verse**.
+ * Red de seguridad de **segundo orden**: quien filtra es la puerta de dispersión; esto solo evita que
+ * una medida se lleve el sesgo de un golpe si alguna vez la pasa con el robot moviéndose. Medido el
+ * 2026-10-02: sin tope, muestrear al principio del asentamiento (con el robot girando por inercia tras
+ * el frenado) dejó el sesgo falseado y **el giro de media vuelta dejó de verse**.
+ *
+ * ⚠️ Estuvo en **20**, y un tope de 20 **no protege de nada**: la contaminación real medida es de
+ * 0,5-0,6 °/s, que cabe de sobra. El número tiene que ser del orden de la deriva que se quiere seguir.
  */
-#define MOTION_GYRO_REFINAR_MAX_PASO 20.0f
+#define MOTION_GYRO_REFINAR_MAX_PASO 5.0f
 
 /**
  * @brief Factor de escala del giroscopio: cuánto mide de menos [adimensional].
