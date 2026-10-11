@@ -12,11 +12,15 @@ nuevo se da de alta aquí.
 |---|---|
 | Entender el robot completo (qué lleva y cómo se conecta) | [hardware.md](./hardware.md) |
 | Saber cómo está montado el software y por qué | [Layered Architecture.md](./Layered%20Architecture.md) |
+| **Ver todo el firmware de un vistazo**: capas, APP y máquinas de estados | [esquema-firmware.md](./esquema-firmware.md) |
 | Ejecutar, flashear y ver telemetría | [entorno-desarrollo.md](./entorno-desarrollo.md) |
 | Mandar órdenes al robot por el puerto serie | [comandos-serie.md](./comandos-serie.md) |
 | Probar un periférico paso a paso | [pruebas-bringup.md](./pruebas-bringup.md) |
 | **Llevar el robot a un laberinto SIN PC** | [laberinto-sin-pc.md](./laberinto-sin-pc.md) |
-| **Guion de la sesión de pruebas que queda** | [sesion-pruebas.md](./sesion-pruebas.md) |
+| **Ejecutar la campaña de puesta a punto** (los 4 bloques, con sus puertas) | [puesta-a-punto.md](./puesta-a-punto.md) |
+| **El plan de mejoras**: qué falló, qué hacen los demás y qué NO copiamos | [plan-mejoras.md](./plan-mejoras.md) |
+| Ver el chasis nuevo (placa base 70 × 90 mm) | [chasis-v1.md](./chasis-v1.md) |
+| **Guion de la sesión de pruebas del 2-oct** (histórico) | [sesion-pruebas.md](./sesion-pruebas.md) |
 | Ver qué se ha probado ya, día a día | [historial-pruebas.md](./historial-pruebas.md) |
 | Saber qué toca hacer ahora | [pruebas-pendientes.md](./pruebas-pendientes.md) |
 | Calibrar los encoders y entender las cuentas | [calibracion-encoders.md](./calibracion-encoders.md) |
@@ -37,6 +41,9 @@ nuevo se da de alta aquí.
 | [modelado.md](./modelado.md) | Sistemas dinámicos, modelado del motor DC, reductora, inercia, cinemática diferencial |
 | [cinemáticas.md](./cinemáticas.md) | Posición, velocidad, aceleración y jerk; perfiles trapezoidal y en S |
 | [odometria.md](./odometria.md) | Integración de posición (x, y, θ) y su fusión con el IEKF |
+| [esquema-firmware.md](./esquema-firmware.md) | **El firmware de un vistazo**: capas, APP, camino del movimiento, arranque, las dos máquinas de estados y el árbol de menús |
+| [firmwares-referencia.md](./firmwares-referencia.md) | Análisis de UKMARSBOT, ZoroBot3 y KERISE: cómo están hechos y qué adoptamos |
+| [auditoria-capas.md](./auditoria-capas.md) | **Auditoría de la frontera aplicación/drivers**: la aplicación compila sin el STM32, qué se escapa y por dónde seguir |
 
 ### Hardware y puesta en marcha
 | Documento | Contenido |
@@ -53,11 +60,15 @@ nuevo se da de alta aquí.
 | [estado-del-proyecto.md](./estado-del-proyecto.md) | Snapshot del estado actual y siguientes pasos |
 | [maquina-estados-menu.md](./maquina-estados-menu.md) | Máquina de estados y menú con botones+OLED (**implementados el 28-sep**): estados, árbol, API y fases |
 | [control-pid.md](./control-pid.md) | **CONTROL**: lazo de velocidad por rueda (PID + rampas), unidades, decisiones de diseño, sintonía Z-N y verificación en el PC |
+| [lazo-control.md](./lazo-control.md) | **El lazo de control en interrupción (TIM1)**: el retardo medido (picos de 68,8 ms), qué arregla un ISR y qué no, dónde vive cada cosa y las secciones críticas |
+| [puesta-a-punto.md](./puesta-a-punto.md) | **Campaña de puesta a punto**: los 4 bloques (encoders/PWM, sensores, movimiento, aceleraciones), con su procedimiento, sus puertas y sus tablas de resultados |
+| [chasis-v1.md](./chasis-v1.md) | **Placa base 70 × 90 mm** con el frente redondeado y muescas para las ruedas: cotas, STEP y cómo regenerarlo |
 
 ### Planificación
 | Documento | Contenido |
 |---|---|
 | [planificacion.md](./planificacion.md) | Plan semanal por bloques hasta el 19 de septiembre de 2026 |
+| [plan-mejoras.md](./plan-mejoras.md) | **Plan de mejoras tras la competición**: qué falló medido, qué aportan los otros tres firmwares, qué NO copiamos y las fases con su puerta de salida |
 
 ### Recursos
 | Recurso | Descripción |

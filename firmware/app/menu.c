@@ -16,6 +16,7 @@
 
 #include "app/menu.h"
 #include "app/buttons.h"
+#include "app/format.h"
 #include "app/fsm.h"
 #include "app/oled.h"
 #include "app/telemetry.h"
@@ -47,6 +48,9 @@ static uint8_t                    n_submenus;
 static Menu_Estado_t         menu_estado;
 static uint8_t               menu_boton;    /* botón de este paso (0 = ninguno) */
 static const Menu_Entrada_t *menu_elegida;  /* salida de la máquina             */
+
+static float   menu_voltaje;     /* voltaje de batería que se pinta en la raíz */
+static uint8_t menu_voltaje_on;  /* 0 mientras nadie haya fijado un voltaje    */
 
 /**
  * @brief Anota el estado y lo publica por telemetría.
@@ -244,6 +248,62 @@ static void menu_anunciar_posicion(void)
  *
  * @param tabla Tabla a pintar
  */
+/* El voltaje va pegado al borde derecho de la cabecera: 128 px de ancho menos tres caracteres de
+   seis píxeles. "8.4" es lo que ocupa una LiPo de dos celdas con un decimal. */
+#define MENU_VOLT_X     110U
+#define MENU_VOLT_CHARS 3U
+
+/**
+ * @brief Pinta el voltaje de batería en la esquina superior derecha.
+ *
+ * Va **sin unidades ni etiqueta**, solo el número, para que no compita con el título. Se alinea a la
+ * derecha, así que un valor de cuatro cifras ("10.2") se sale un carácter hacia la izquierda en vez
+ * de descuadrar el margen.
+ *
+ * @param borrar 1 para limpiar el hueco antes de escribir (hace falta al repintar sin limpiar el
+ *               framebuffer entero), 0 para escribir encima
+ */
+static void menu_dibujar_voltaje(uint8_t borrar)
+{
+    char    texto[10];
+    uint8_t ancho;
+    uint8_t x;
+
+    if (menu_voltaje_on == 0U) {
+        return;
+    }
+
+    ancho = FORMAT_Float(texto, sizeof(texto), menu_voltaje, 1U);
+
+    if ((borrar != 0U) || (ancho == 0U)) {
+        /* Cuatro espacios: tapan los tres caracteres del hueco y el que puede ocupar de más un
+           valor de cuatro cifras, que es lo único que crece hacia la izquierda. */
+        OLED_Print((uint8_t)(MENU_VOLT_X - 6U), 0U, 1U, "    ");
+    }
+
+    if (ancho == 0U) {
+        return;
+    }
+
+    x = (ancho < MENU_VOLT_CHARS)
+            ? (uint8_t)(MENU_VOLT_X + ((uint8_t)(MENU_VOLT_CHARS - ancho) * 6U))
+            : (uint8_t)(MENU_VOLT_X - ((uint8_t)(ancho - MENU_VOLT_CHARS) * 6U));
+
+    OLED_Print(x, 0U, 1U, texto);
+}
+
+/**
+ * @brief Pinta la cabecera de la tabla, con la posición del cursor si la lista no cabe entera.
+ *
+ * La ventana enseña `MENU_FILAS_VISIBLES` filas y las listas dan la vuelta por los extremos, así que
+ * sin el contador no hay forma de saber que quedan opciones por debajo: el motor no dibuja ningún
+ * indicador de scroll y las pruebas nuevas, que se añaden al final, parecen no existir.
+ *
+ * En la **raíz** la cabecera lleva además el voltaje de batería a la derecha; en los submenús no,
+ * porque ahí ya manda el contador de filas.
+ *
+ * @param tabla Tabla a pintar
+ */
 static void menu_dibujar_cabecera(const Menu_Tabla_t *tabla)
 {
     char linea[24];
@@ -256,10 +316,13 @@ static void menu_dibujar_cabecera(const Menu_Tabla_t *tabla)
         snprintf(linea, sizeof(linea), "%s %u/%u",
                  tabla->titulo, (unsigned)(idx + 1U), (unsigned)tabla->n);
         OLED_Print(0U, 0U, 1U, linea);
-        return;
+    } else {
+        OLED_Print(0U, 0U, 1U, tabla->titulo);
     }
 
-    OLED_Print(0U, 0U, 1U, tabla->titulo);
+    if (prof == 0U) {
+        menu_dibujar_voltaje(0U);
+    }
 }
 
 /**
@@ -376,4 +439,38 @@ const char *MENU_TituloActual(void)
 uint8_t MENU_Profundidad(void)
 {
     return prof;
+}
+
+/**
+ * @brief Fija el voltaje de batería que se enseña en la cabecera de la raíz.
+ *
+ * El menú **no lee la batería**: se lo empuja quien lo llama (la APP), y así este módulo sigue sin
+ * conocer `sensor/battery.h`. Tampoco se publica por telemetría; de eso ya se encarga la APP.
+ *
+ * @param voltios Tensión del pack en voltios
+ */
+void MENU_SetVoltaje(float voltios)
+{
+    menu_voltaje    = voltios;
+    menu_voltaje_on = 1U;
+}
+
+/**
+ * @brief Repinta solo el voltaje, sin tocar el resto de la pantalla.
+ *
+ * Existe porque `MENU_Dibujar()` limpia el framebuffer entero y eso **se ve como un parpadeo**. Esta
+ * versión pisa únicamente los caracteres del voltaje, así que se puede llamar cada pocos segundos
+ * para tener la lectura fresca. El `OLED_Update()` manda igualmente los 512 bytes del framebuffer
+ * (unos 50 ms por I2C), pero el contenido no se apaga por el camino.
+ *
+ * @note No hace nada si todavía no hay voltaje fijado, o si no se está en la raíz.
+ */
+void MENU_RefrescarVoltaje(void)
+{
+    if ((menu_voltaje_on == 0U) || (prof != 0U)) {
+        return;
+    }
+
+    menu_dibujar_voltaje(1U);
+    OLED_Update();
 }

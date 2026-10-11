@@ -1240,8 +1240,7 @@ Con el robot **en el aire y las ruedas libres**:
 régimen permanente < 2 %, y con la misma consigna en las dos ruedas **el robot va recto**.
 
 > ⚠️ La sintonía es de cada robot y de cada batería: si la tensión cambia mucho, las ganancias
-> también. Se puede repetir cuando haga falta: el menú la tiene en **TEST → PID VELOCIDAD** y en
-> **CAL → SINTONIA PID**.
+> también. Se puede repetir cuando haga falta: el menú la tiene en **MOTORES → SINTONIA**.
 ---
 
 ## 15. Procedimiento: odometría (prueba 19) y calibración de la trocha

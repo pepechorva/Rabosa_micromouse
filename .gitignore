@@ -129,6 +129,13 @@ mechanical/step/
 mechanical/**/*.zip
 mechanical/**/*.step
 
+# ⚠️ Los diseños mecánicos PROPIOS (freecad/*.py y *.step) también quedan FUERA, a propósito:
+# decisión del 2026-10-11 — al repositorio sube el firmware y su documentación, y el STEP
+# es un entregable derivado que se regenera con el script. El .FCStd SÍ se versiona (es el
+# fichero editable de FreeCAD).
+# Si algún día se quieren versionar los diseños propios, las excepciones tienen que llevar
+# prefijo `chasis`: un `!.../freecad/*.step` a secas reabriría los ~784 MB de GrabCAD.
+
 # ------------------------------------------------------------------
 # Obsidian: cuaderno personal → NUNCA al repositorio
 # (se borró el 2026-09-21; si vuelve a sincronizarse, queda ignorado a propósito)

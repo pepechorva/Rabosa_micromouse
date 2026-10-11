@@ -1,4 +1,5 @@
 #include "hal/uart.h"
+#include "hal/timers.h"
 #include <stdio.h>
 #include <stdarg.h>
 
@@ -53,17 +54,35 @@ void MX_USART3_UART_Init(uint32_t baudrate)
     HAL_UART_Init(&huart3);
 }
 
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
+ * Envío BLOQUEANTE, y por eso está cronometrado.
+ *
+ * `HAL_UART_Transmit()` con `HAL_MAX_DELAY` **espera** a que el byte salga por el cable: a 115200
+ * baudios son 86,8 µs por byte, así que una sola línea de telemetría (unos 17 B) cuesta ~1,5 ms y
+ * un bloque de cinco etiquetas se lleva **~7,5 ms de golpe**. Eso no es tiempo perdido de cálculo: es
+ * el lazo de control sin muestrear. Se mide aquí para poder ponerle número con la orden `LAZO`.
+ * ------------------------------------------------------------------ */
 HAL_StatusTypeDef UART_SendString(const char *str)
 {
-    return HAL_UART_Transmit(&huart3, (uint8_t *)str,
-                             strlen(str), HAL_MAX_DELAY);
+    uint16_t t0 = TIM_Cuentas();
+    HAL_StatusTypeDef resultado;
+
+    resultado = HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), HAL_MAX_DELAY);
+    TIM_Cronometrar(TIM_TRAMO_UART, t0);
+
+    return resultado;
 }
 
 /* ------------------------------------------------------------------ */
 HAL_StatusTypeDef UART_SendData(const uint8_t *data, uint16_t len)
 {
-    return HAL_UART_Transmit(&huart3, (uint8_t *)data, len, HAL_MAX_DELAY);
+    uint16_t t0 = TIM_Cuentas();
+    HAL_StatusTypeDef resultado;
+
+    resultado = HAL_UART_Transmit(&huart3, (uint8_t *)data, len, HAL_MAX_DELAY);
+    TIM_Cronometrar(TIM_TRAMO_UART, t0);
+
+    return resultado;
 }
 
 /* ------------------------------------------------------------------ */

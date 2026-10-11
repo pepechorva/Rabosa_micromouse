@@ -193,6 +193,17 @@ uint8_t BUTTONS_SalidaSolicitada(void)
 }
 
 /**
+ * @brief Pide salir de la prueba en curso, como si se hubiera pulsado MENU (orden `SALIR`).
+ *
+ * Se marca **la misma bandera que marca la interrupción del botón**, así que el camino es idéntico:
+ * `BUTTONS_SalidaSolicitada()` no distingue de dónde vino.
+ */
+void BUTTONS_SolicitarSalida(void)
+{
+    GPIO_MenuBtnIRQ_Handler();
+}
+
+/**
  * @brief Nombre del botón, para pantalla y menú.
  *
  * @param numero Evento de BUTTONS_GetEvent()

@@ -35,29 +35,36 @@
 
 ## 2. Cómo llegar a cada sitio
 
-El menú raíz es `TEST` · `EXPLORE` · `RESOLVE` · `SETTINGS` · `DIAG` · `PARAR`, y se entra desde
-`RABOSA-MVR`:
+El menú raíz es `BATERIA` · `IR` · `MOTORES` · `TELEMETRIA` · `EXPLORACION` · `RESOLUCION` ·
+`AJUSTES` · `DIAGNOSTICO` · `PARAR`, y se entra desde `RABOSA-MVR`:
 
 | Quiero… | Pulsaciones desde `RABOSA-MVR` |
 |:--------|:-------------------------------|
-| **Ajustar los umbrales de pared** (`PAREDES`) | `OK` · `DOWN` · `OK` · `OK` |
-| **Comprobar la batería** (`BATERIA`) | `OK` · `OK` · `DOWN` · `OK` |
-| Alinear los focos IR (`EMISORES IR`) | `OK` · `DOWN` · `OK` · `DOWN` · `OK` |
-| Comprobar el IR modulado (`IR MODULADO`) | `OK` · `DOWN` · `OK` · `DOWN`×7 · `OK` |
-| Movimiento y giros (`MOVIMIENTO`) | `OK` · `DOWN` `DOWN` · `OK` · `OK` |
-| PID (`PID VELOCIDAD`) | `OK` · `DOWN` `DOWN` · `OK` · `DOWN` · `OK` |
-| **Recorrer el laberinto** (`WALL FOLLOWER`) | `DOWN` · `OK` · `OK` |
+| **Ajustar los umbrales de pared** (`IR → UMBRALES`) | `DOWN` · `OK` · `DOWN` `DOWN` · `OK` |
+| **Comprobar la batería** (`BATERIA → TENSIONES`) | `OK` · `OK` |
+| Alinear los focos IR (`IR → ENCENDER`) | `DOWN` · `OK` · `OK` |
+| Ver los cuatro receptores (`IR → LECTURA`) | `DOWN` · `OK` · `DOWN` · `OK` |
+| Comprobar el IR modulado (`IR → MODULADO`) | `DOWN` · `OK` · `DOWN`×3 · `OK` |
+| Movimiento y giros (`MOTORES → MOVIMIENTO`) | `DOWN` `DOWN` · `OK` · `DOWN` `DOWN` · `OK` |
+| PID y velocidad (`MOTORES → SINTONIA`) | `DOWN` `DOWN` · `OK` · `OK` |
+| **Recorrer el laberinto** (`EXPLORACION → MANO DERECHA`) | `UP`×4 · `OK` · `OK` |
+| Bus I2C (`DIAGNOSTICO → BUS I2C`) | `UP` `UP` · `OK` · `OK` |
 
-> 🔢 **El contador de la cabecera es la brújula.** Cuando una lista tiene más filas de las que caben,
-> el título lleva `i/n` (`TEST IR 3/9`). **No cuentes pulsaciones: baja hasta que ponga la fila que
-> quieres y pulsa OK.** Las filas del bloque **IR** son:
+> 🔢 **El contador de la cabecera es la brújula.** La raíz tiene **nueve filas** y solo caben tres, así
+> que el título lleva `i/n` (`RABOSA-MVR 3/9`): **no cuentes pulsaciones, baja (o sube) hasta que ponga
+> la fila que quieres y pulsa OK.** Las listas **dan la vuelta** por los extremos, así que de la fila 1
+> a la 9 se llega con **dos `UP`**, no con siete `DOWN`.
 >
-> `1` PAREDES · `2` EMISORES IR · `3` IR RECEPTORES · `4` VER R0 · `5` VER R1 · `6` VER R2 ·
-> `7` VER R3 · `8` IR MODULADO · `9` CURVA IR
+> Las filas de la raíz, en orden: `1` BATERIA · `2` IR · `3` MOTORES · `4` TELEMETRIA ·
+> `5` EXPLORACION · `6` RESOLUCION · `7` AJUSTES · `8` DIAGNOSTICO · `9` PARAR
 >
-> ⚠️ **Ese bloque pasó de 3 a 9 filas el 2026-10-02** (se recuperaron `EMISORES IR`, `IR RECEPTORES`
-> y `VER R0`..`VER R3`), así que **cualquier ruta apuntada de memoria antes de esa fecha está mal**.
-> El contador no miente: si no dice lo que esperas, sigue bajando.
+> Y las del bloque **IR**: `1` ENCENDER · `2` LECTURA · `3` UMBRALES · `4` MODULADO · `5` CURVA
+>
+> ⚠️ **El árbol entero cambió el 2026-10-11**: la raíz pasó de `TEST`/`EXPLORE`/… a **bloques de
+> trabajo**, así que **cualquier ruta memorizada antes de esa fecha está mal**. El contador no miente.
+
+> 🔋 Y en la esquina superior **derecha de la raíz** está el **voltaje del pack** (`7.7`, sin
+> unidades): para saber si queda batería **no hace falta entrar en `BATERIA`**. Se refresca cada 2 s.
 
 ---
 
@@ -85,7 +92,9 @@ PAREDES U 300     <- umbral de la pared seleccionada
 
 ---
 
-## 4. Recorrer el laberinto (`WALL FOLLOWER`)
+## 4. Recorrer el laberinto (`MANO DERECHA`)
+
+> En la pantalla de la prueba pone `WALL FOLLOWER`: es la misma (*mano derecha* es el algoritmo).
 
 ```
 WALL FOLLOWER >   <- la '>' dice que está andando
@@ -136,9 +145,9 @@ que **sí viven en RAM**, dónde se miran, y si hay forma de cambiarlos allí:
 
 | Valor | Dónde se consulta | ¿Se puede cambiar sin PC? |
 |:------|:------------------|:--------------------------|
-| **Umbrales de pared** (los tres) | **`PAREDES`** (prueba 21): `PAREDES U <umbral>` arriba, y las tres medidas con su veredicto | ✅ **Sí**: `OK` cambia de pared, `UP/DOWN` mueven su umbral |
-| **Ganancias del PID** (Kp, Ki, Kd) y la velocidad | **`PID VELOCIDAD`** (prueba 18), filas 0-1 | ✅ **Sí**: `OK` elige parámetro, `UP/DOWN` lo mueven |
-| **Estado de la batería** (estado, `TOTAL`, `CEL1`, `CEL2`) | **`BATERIA`** (prueba 12) | ❌ No: sus umbrales se cambian con la orden `BAT`, que necesita PC |
+| **Umbrales de pared** (los tres) | **`IR → UMBRALES`** (prueba 21): `PAREDES U <umbral>` arriba, y las tres medidas con su veredicto | ✅ **Sí**: `OK` cambia de pared, `UP/DOWN` mueven su umbral |
+| **Ganancias del PID** (Kp, Ki, Kd) y la velocidad | **`MOTORES → SINTONIA`** (prueba 18), filas 0-1 | ✅ **Sí**: `OK` elige parámetro, `UP/DOWN` lo mueven |
+| **Estado de la batería** (estado, `TOTAL`, `CEL1`, `CEL2`) | **`BATERIA → TENSIONES`** (prueba 12) | ❌ No: sus umbrales se cambian con la orden `BAT`, que necesita PC |
 
 ### Cómo leer las pantallas
 
@@ -180,4 +189,4 @@ Hay que **pulsar OK para ir rotando** (`KP` → `KI` → `KD` → `VEL`) y apunt
 - ❌ **Leer la traza** (`TRACE`) — está en RAM, pero para sacarla hace falta un PC.
 - ❌ **Órdenes de consola** (`MOV`, `PID`, `BAT LIST`, `LED`) — necesitan el cable.
 - ❌ **Reflashear** — cualquier arreglo de firmware tendría que haberse hecho antes.
-- ❌ **Cambiar los umbrales desde otro sitio** — solo con los botones, en la prueba `PAREDES`.
+- ❌ **Cambiar los umbrales desde otro sitio** — solo con los botones, en `IR → UMBRALES`.

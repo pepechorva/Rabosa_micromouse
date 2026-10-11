@@ -112,9 +112,20 @@ float get_encoder_right_speed(void);
 /* Manejo de overflow del contador (para contadores uint16_t) */
 int32_t max_likelihood_counter_diff(uint16_t now, uint16_t before);
 
-/* Actualización periódica: leer hardware, calcular diferencias,
- * distancia y velocidad. Llamar a la frecuencia definida por
- * SYSTICK_FREQUENCY_HZ. */
-void update_encoder_readings(void);
+/**
+ * @brief Actualización periódica: lee los dos contadores, acumula distancia y estima velocidad.
+ *
+ * ⚠️ **El `dt` entra por parámetro, y es obligatorio pensarlo.** La ventana de la media móvil es la
+ * **suma de los `dt`** que se le dan, así que su duración —y el retraso del filtro— dependen del
+ * **ritmo de llamada**: 20 muestras cada 10 ms son una ventana de ~200 ms (~95 ms de retraso al
+ * regular) y las mismas 20 cada 1 ms son 20 ms (~9,5 ms). Medirlo por dentro arregla el escalado de
+ * la velocidad pero **no** la ventana, y eso fue un error escondido hasta el 2026-10-11.
+ *
+ * Lo llena la interrupción de TIM1 a 1 kHz fijo (`app/control_loop.c`), que es lo que devuelve la
+ * ventana a 20 ms y la deja igual en el banco y en la misión.
+ *
+ * @param dt Segundos desde la llamada anterior
+ */
+void update_encoder_readings(float dt);
 
 #endif /* SENSOR_ENCODER_H */

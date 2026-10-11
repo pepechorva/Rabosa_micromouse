@@ -82,4 +82,25 @@ const char *MENU_TituloActual(void);
 /** @brief Profundidad actual: 0 = raíz, 1 = submenú… */
 uint8_t MENU_Profundidad(void);
 
+/**
+ * @brief Fija el voltaje de batería que se enseña en la cabecera de la raíz.
+ *
+ * El menú **no lee la batería**: se lo empuja la APP, y así este módulo no depende de
+ * `sensor/battery.h`. Se dibuja solo en la raíz y **sin unidades ni etiqueta**, solo el número
+ * ("7.7"), pegado al borde derecho.
+ *
+ * @param voltios Tensión del pack en voltios
+ */
+void MENU_SetVoltaje(float voltios);
+
+/**
+ * @brief Repinta solo el voltaje de la cabecera, sin limpiar la pantalla.
+ *
+ * Para tener la lectura fresca sin el parpadeo de `MENU_Dibujar()`, que hace `OLED_Clear()`. Cuesta
+ * igualmente los ~50 ms del `OLED_Update()`, así que se llama cada pocos segundos, no cada vuelta.
+ *
+ * @note No hace nada si no hay voltaje fijado o si no se está en la raíz.
+ */
+void MENU_RefrescarVoltaje(void);
+
 #endif /* APP_MENU_H */

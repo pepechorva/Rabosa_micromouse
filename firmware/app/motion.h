@@ -390,20 +390,37 @@ typedef struct {
 /**
  * @brief Prepara las primitivas: arranca los dos lazos y pone la pose en el origen.
  *
+ * Los lazos arrancan **con las ganancias a cero**: hay que dárselas con `MOTION_SetGanancias()` antes
+ * de pedir el primer movimiento. Se separó así porque las ganancias son **por rueda** (los dos N20 no
+ * son iguales) y seis floats sueltos en el constructor dan una firma que se lee mal.
+ *
  * @param m Estructura a inicializar
  * @param motor_izq Driver de la rueda izquierda (los motores son de la APP: `application.c`)
  * @param motor_der Driver de la rueda derecha
- * @param kp Ganancia proporcional de los lazos de velocidad
- * @param ki Ganancia integral
- * @param kd Ganancia derivativa
- * @note Conviene pasarle las ganancias que se hayan sintonizado en la prueba 18.
  * @note Los motores se pasan por parámetro en vez de usar los globales de `application.c`: así este
  *       módulo no depende de un estado que no controla.
  */
 void MOTION_Init(Motion_t *m,
                  DRV8833_Motor_t *motor_izq,
-                 DRV8833_Motor_t *motor_der,
-                 float kp, float ki, float kd);
+                 DRV8833_Motor_t *motor_der);
+
+/**
+ * @brief Pone las ganancias de los dos lazos de velocidad, una por rueda.
+ *
+ * @param m Estructura de las primitivas
+ * @param kp_izq Ganancia proporcional del lazo izquierdo
+ * @param ki_izq Ganancia integral del lazo izquierdo
+ * @param kd_izq Ganancia derivativa del lazo izquierdo
+ * @param kp_der Ganancia proporcional del lazo derecho
+ * @param ki_der Ganancia integral del lazo derecho
+ * @param kd_der Ganancia derivativa del lazo derecho
+ * @note Conviene pasarle las ganancias que se hayan sintonizado en la prueba 18 (orden `PID`).
+ * @note `PID_SetGanancias()` resetea el integrador: cambiar ganancias en caliente no puede dejar
+ *       dentro el término de salida que acumuló la combinación anterior.
+ */
+void MOTION_SetGanancias(Motion_t *m,
+                         float kp_izq, float ki_izq, float kd_izq,
+                         float kp_der, float ki_der, float kd_der);
 
 /**
  * @brief Avanza en línea recta la distancia pedida.

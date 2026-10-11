@@ -5,20 +5,48 @@ Robot **micromouse** Rabosa-MVR. Firmware en **C puro** sobre **STM32F103C8T6** 
 
 ## Arquitectura: regla de capas
 
-Cada capa **solo llama a la inmediatamente inferior**. Nunca saltar capas ni invertir dependencias.
+La frontera que **no se cruza nunca** es la de la **lógica de misión**: `core/` (junto con
+`control/` y `filter/`) **no puede tocar `drivers/`, `sensor/`, `hal/` ni `hw/`**. Habla con el
+mundo por el contrato `core/core_io.h`, y quien lo implementa es `drivers/`.
 
 ```
-APP → CONTROL → FILTER → SENSOR → HAL → HW
+app/         interfaz y banco   ──► SÍ puede tocar hal/ y sensor/ (es su trabajo)
+  │
+core/        lógica de misión   ──► NO toca nada por debajo: solo core_io.h
+  │            (core_io.h)
+  ▼
+drivers/     dispositivos        motores, encoders, paredes, reloj
+  │
+hal/         periféricos del MCU adc, i2c, pwm, spi, timers, uart…
+  │
+hw/          registros y pines
 ```
 
-- **APP** `firmware/app/` — misión, secuencias, telemetría y consola de órdenes
+⚠️ **Dos cosas distintas dentro de lo que antes era APP**, y esta distinción es la que hay que
+tener clara:
+
+- **`app/` es interfaz y banco** (menú, telemetría, consola, OLED, botones y las pruebas de
+  banco). **Puede tocar `hal/` y `sensor/` a propósito** — arrancar los periféricos, encender
+  el LED, leer el reloj—, porque ese es justo su trabajo. Lo que no puede es tener lógica de
+  misión.
+- **`core/` es lógica de misión** (perfiles, movimiento, mapa, navegación). Ahí **cero
+  símbolos de la HAL**, sin excepciones.
+
+- **APP** `firmware/app/` — **interfaz y banco**: menú, telemetría, consola, OLED, botones y las
+  pruebas de banco
+- **CORE** `firmware/core/` — **lógica de misión portable**: perfiles, movimiento, mapa,
+  navegación. **Cero símbolos de la HAL**, y tiene que compilar en el PC:
+  `gcc -c -Wall -Wextra -I firmware firmware/core/*.c firmware/control/*.c firmware/filter/*.c`
 - **CONTROL** `firmware/control/` — consignas y PID
 - **FILTER** `firmware/filter/` — estimación, filtrado, odometría
+- **DRIVERS** `firmware/drivers/` — dispositivos: motores, encoders, paredes, reloj
 - **SENSOR** `firmware/sensor/` — medida cruda (imu.c, encoder.c)
 - **HAL** `firmware/hal/` — periféricos del MCU (adc, i2c, pwm, spi, timers, uart…)
 - **HW** `firmware/hw/` — registros y pines
 
-Si un cambio toca dos capas, **divídelo en dos cambios**. Nada de `HAL_*` por encima de la capa HAL.
+Si un cambio toca dos capas, **divídelo en dos cambios**. **Nada de `HAL_*` en `core/`,
+`control/` ni `filter/`**: medido el 2026-10-10, esas tres capas tienen **0 símbolos de la HAL** y
+hay que mantenerlo así (ver `Documentacion/auditoria-capas.md`).
 
 ## Includes y build
 

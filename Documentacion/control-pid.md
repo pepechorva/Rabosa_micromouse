@@ -68,7 +68,7 @@ primitivas de `app/motion.c`). Medidas sobre el robot el **2026-10-01**.
 | Planta duty → velocidad (ruedas libres) | `K ≈ 15 mm/s` por 1 % de duty · `tau ≈ 45 ms` |
 | Error de régimen con estas ganancias | **0,5 %** (298,5 mm/s de mediana pidiendo 300) |
 | Asentamiento tras un escalón | 0,6 s |
-| Límite de `Kp` | `≈ 0,2` · con `0,3` el lazo satura y oscila |
+| Límite de `Kp` | entre **0,10** (bien) y **0,20** (oscila) · medido el 11-oct ya con el lazo en interrupción |
 
 **Lo que limita `Kp` es el retardo del lazo, no la planta.** El retardo es de ~25 ms (la media móvil de
 20 muestras del encoder más los 10 ms del lazo) y `tau ≈ 45 ms`, así que `T/tau ≈ 0,6`: el margen de
@@ -81,7 +81,65 @@ la velocidad se quedaba en **180 mm/s pidiendo 300** (un 40 % de error: es exact
 frente a `wc ≈ 25 rad/s`) el error baja al 0,5 % manteniendo un margen de fase de ~77°.
 
 `Kd = 0` **a propósito**: la planta es de primer orden y el derivativo solo amplificaría el ruido de
-cuantificación del encoder, que es de unos 7 mm/s.
+cuantificación del encoder, que es de **14,3 mm/s** (una cuenta de 287 µm dividida por la ventana de
+20,02 ms; medido el 11-oct).
+
+### Ganancias por rueda (medido el 2026-10-11)
+
+Las ganancias se guardan **una por rueda** (`KP IZQ`, `KP DER`…) porque los dos N20 nunca tienen por
+qué ser iguales. **Al medirlo, resulta que estos dos sí lo son**, y conviene dejar el número escrito:
+
+| Medida (ruedas en el aire) | IZQ | DER | Diferencia |
+|:--|--:|--:|--:|
+| duty a 80 mm/s (con integrador), n = 180 | 10,931 % | 10,959 % | **−0,028 % ± 0,181** (0,2 σ) |
+| duty a 300 mm/s, n = 826 | 12,469 % | 12,408 % | **+0,061 % ± 0,113** (0,5 σ) |
+| régimen a 300 mm/s, n = 321 | 176,76 mm/s | 177,12 mm/s | **0,36 mm/s** (error de la media ±0,47) |
+
+⇒ **Los dos motores piden el mismo duty para la misma velocidad, dentro del ruido** (0,2-0,5 σ). El
+método *detectaría* la diferencia: un 9 % de planta daría **+6,3 mm/s** a 300 mm/s, diez veces por
+encima del error de la media. **Por eso las dos ruedas llevan hoy las mismas ganancias**: no hay nada
+que compensar, y escribir una asimetría que no existe sería peor que no tocar nada.
+
+> [!WARNING] Lo que esta medida **no** cubre
+> Todas las pruebas de este proyecto se hacen **con las ruedas en el aire** (instrucción vigente), y en
+> el aire **no hay carga**. La asimetría de unos N20 aparece sobre todo **con carga** (roce del eje,
+> puntos duros de la reductora, y sobre todo el duty de arranque). ⇒ La estructura por rueda está
+> puesta y **probada** para el día en que las pruebas pasen al suelo: ese día se repite esta medida con
+> el robot pesando y, si sale diferencia, se escribe en `PID_TEST_*_DEF` (`app/application.c`).
+
+#### La planta, medida en tres puntos
+
+| Punto | duty | velocidad |
+|:--|--:|--:|
+| Baja velocidad (con integrador; error −2,6 mm/s) | 10,93 % | 77,4 mm/s |
+| Equilibrio del lazo **P** (`Ki = 0`, `Kp = 0,1`, pidiendo 300) | 12,32 % | 176,8 mm/s |
+| Régimen a 300 mm/s | 13,63 % | 300,5 mm/s |
+
+Los dos primeros dan la recta $v \approx 71{,}5\,(duty - 9{,}85\,\%)$: **unos 71,5 mm/s por punto de
+duty con un escalón muerto de ~10 %**. Es la «rampa de cada motor» y explica por qué a duty bajo el
+motor solo **zumba**: por debajo del escalón muerto no hay par que venza la fricción.
+
+⚠️ El tercer punto se sale de esa recta un **10 %**, así que el modelo afín es **una aproximación, no
+una ley**: sirve para el *feedforward* (compensar el escalón muerto), **no** para calcular la
+velocidad a lazo abierto.
+
+> ℹ️ El duty de trabajo a 300 mm/s es **13,6 %**, muy por debajo del **21-25 %** que se midió como
+> «duty mínimo de arranque» sobre el suelo. No se contradicen: son cosas distintas (una rueda **que ya
+gira** con el robot en el aire, frente a **arrancar parada** con el peso del robot encima).
+
+#### `Kp = 0,20` sigue siendo inestable (comprobado el 2026-10-11)
+
+Con la interrupción puesta se esperaba poder subir `Kp`. **No se puede, y el porqué es lo interesante**:
+
+| `Kp` | σ(v) en régimen | σ(duty) | Veredicto |
+|:--:|--:|--:|:--|
+| **0,10** | 10,3 y 13,2 mm/s (**0,7 y 0,9 cuentas**) | 1,2 % | ✅ quieto: el residuo está por debajo del escalón del encoder |
+| 0,20 | **151 y 83 mm/s** (10,5 y 5,8 cuentas) | **28 %** | ❌ oscila (picos de 817 mm/s pidiendo 300) |
+
+El motivo: en el **banco** el bucle ya iba a **1,9 ms**, así que la media móvil ya duraba sus 20 ms y
+lo único que el ISR quitó fue el retardo del lazo (de 10 a 0,5 ms). El retardo total pasó de ~20 a
+~15 ms, solo **1,3×**, y el límite de `Kp` se mueve con él. **El premio del ISR no está en el banco,
+está en la misión**, donde ese mismo filtro pasaba de 200 a 20 ms (10×).
 
 ### Ziegler-Nichols se descartó
 

@@ -36,9 +36,9 @@
 | **micromouse** | Robot autónomo que resuelve un laberinto; también la competición | El robot es un *micromouse* (OSHWDem) |
 | **maze** | Laberinto | `Documentacion/` habla de «laberinto 4×4»; el término inglés se usa poco |
 | **cell** | Celda del laberinto (aquí de **18 cm**) | `avanzar_celda()` mueve una celda |
-| **wall follower** | Algoritmo que recorre el laberinto pegado a una pared (aquí, *mano derecha*) | Submenú **EXPLORAR → MANO DERECHA** |
-| **flood fill** | Relleno por inundación: calcula distancias al centro sobre el mapa para resolver el laberinto | Submenú **EXPLORAR → FLOOD FILL** |
-| **run** | Una pasada de exploración o de resolución | Estado `APP_STATE_RUN`; entrada **RUN** del menú |
+| **wall follower** | Algoritmo que recorre el laberinto pegado a una pared (aquí, *mano derecha*) | Submenú **EXPLORACION → MANO DERECHA** |
+| **flood fill** | Relleno por inundación: calcula distancias al centro sobre el mapa para resolver el laberinto | Submenú **EXPLORACION → FLOOD FILL** |
+| **run** | Una pasada de exploración o de resolución | Estado `APP_STATE_RUN`; se entra desde **EXPLORACION** o **RESOLUCION** |
 | **dead reckoning** | Navegación por integración de movimientos, sin referencia externa | Equivale a **odometría**, que es el término que se usa aquí (`filter/odometry.c`) |
 
 ---

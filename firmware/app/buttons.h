@@ -61,6 +61,18 @@ uint8_t BUTTONS_WasPressed(Button_t button);
  */
 uint8_t BUTTONS_GetMask(void);
 
+/**
+ * @brief Pide salir de la prueba en curso, como si se hubiera pulsado MENU (orden `SALIR`).
+ *
+ * `BUTTONS_SalidaSolicitada()` mira el contador de la interrupción de MENU, así que marcarlo es
+ * **exactamente** lo que hace el botón. Sirve para salir desde el PC, que es lo que permite guionizar
+ * el banco sin tocar el robot.
+ *
+ * @note La orden solo se lee dentro de las pruebas que llaman a `CONSOLE_Update()` en su bucle
+ *       (12, 18 y 20); en las demás hay que esperar a que salgan solas o pulsar MENU.
+ */
+void BUTTONS_SolicitarSalida(void);
+
 /* ------------------------------------------------------------------
  * Numeración de los botones para telemetría y menú.
  *

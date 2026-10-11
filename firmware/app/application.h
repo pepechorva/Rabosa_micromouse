@@ -92,12 +92,29 @@ typedef enum {
 } App_PidGanancia_t;
 
 /**
+ * @brief Rueda a la que se aplica un ajuste del lazo de velocidad.
+ *
+ * Las ganancias son **por rueda** porque los dos motores N20 no son iguales: a igualdad de duty el
+ * izquierdo cuenta un ~9 % más (`COMPARA M`, 30-sep) y el duty mínimo de arranque también difiere.
+ * Con un juego común, una de las dos ruedas queda peor servida y el robot se va de lado.
+ *
+ * ⚠️ Los valores **son los índices** del almacén de ganancias: no reordenar.
+ */
+typedef enum {
+    APP_RUEDA_IZQ = 0,
+    APP_RUEDA_DER,
+    APP_RUEDA_AMBAS,   /* solo para escribir: aplica el valor a las dos */
+    APP_RUEDA_N
+} App_Rueda_t;
+
+/**
  * @brief Cambia una ganancia del lazo de velocidad (orden `PID` de la consola).
  * @param cual  Ganancia a cambiar
+ * @param rueda Rueda a la que se aplica; `APP_RUEDA_AMBAS` escribe en las dos
  * @param valor Valor nuevo
  * @return 1 si se aceptó, 0 si está fuera de rango
  */
-uint8_t APP_PID_SetGanancia(App_PidGanancia_t cual, float valor);
+uint8_t APP_PID_SetGanancia(App_PidGanancia_t cual, App_Rueda_t rueda, float valor);
 
 /**
  * @brief Cambia la consigna de velocidad de la prueba 18 (orden `PID VEL`).
@@ -106,8 +123,12 @@ uint8_t APP_PID_SetGanancia(App_PidGanancia_t cual, float valor);
  */
 uint8_t APP_PID_SetVelocidad(float mm_s);
 
-/** @brief Ganancia en uso (la que aplicará la prueba 18). */
-float APP_PID_GetGanancia(App_PidGanancia_t cual);
+/**
+ * @brief Ganancia en uso (la que aplicará la prueba 18) para una rueda concreta.
+ * @param cual  Ganancia a leer
+ * @param rueda Rueda de la que se lee; con `APP_RUEDA_AMBAS` devuelve la izquierda
+ */
+float APP_PID_GetGanancia(App_PidGanancia_t cual, App_Rueda_t rueda);
 
 /** @brief Consigna de velocidad en uso [mm/s]. */
 float APP_PID_GetVelocidad(void);
@@ -144,6 +165,17 @@ typedef enum {
  *         argumentos no valen
  */
 uint8_t APP_MOV_Pedir(App_Movimiento_t cual, uint8_t repeticiones);
+
+/**
+ * @brief Pide lanzar una prueba del banco por su nombre del menú (orden `TEST` de la consola).
+ *
+ * La orden **no lanza nada por sí sola**: deja la petición apuntada y la consume el despachador de la
+ * FSM, que es el único que puede cambiar de estado. Así el camino es el mismo que el de los botones.
+ *
+ * @param etiqueta Nombre de la prueba, **tal como aparece en el menú** (`SINTONIA`, `MOVIMIENTO`…)
+ * @return 1 si se ha aceptado, 0 si no existe esa prueba o no se está en el menú
+ */
+uint8_t APP_Test_Pedir(const char *etiqueta);
 
 /**
  * @brief Recoge la petición pendiente y la marca como atendida.

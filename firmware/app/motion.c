@@ -25,6 +25,7 @@
 #include "app/buttons.h"
 #include "hal/drv8833.h"
 #include "hal/systemclock.h"
+#include "hal/timers.h"
 #include "sensor/encoder.h"
 #include "sensor/imu.h"
 
@@ -208,8 +209,6 @@ static void motion_paso(Motion_t *m, float consigna_izq, float consigna_der, flo
 {
     int32_t um_izq;
     int32_t um_der;
-
-    update_encoder_readings();
 
     um_izq = get_encoder_left_micrometers();
     um_der = get_encoder_right_micrometers();
@@ -466,15 +465,33 @@ static uint8_t motion_gyro_leer(Motion_t *m, float dt)
 }
 
 /**
+ * @brief Pone las ganancias de los dos lazos de velocidad, una por rueda.
+ *
+ * @param m Estructura de las primitivas
+ * @param kp_izq Ganancia proporcional del lazo izquierdo
+ * @param ki_izq Ganancia integral del lazo izquierdo
+ * @param kd_izq Ganancia derivativa del lazo izquierdo
+ * @param kp_der Ganancia proporcional del lazo derecho
+ * @param ki_der Ganancia integral del lazo derecho
+ * @param kd_der Ganancia derivativa del lazo derecho
+ */
+void MOTION_SetGanancias(Motion_t *m,
+                         float kp_izq, float ki_izq, float kd_izq,
+                         float kp_der, float ki_der, float kd_der)
+{
+    CTRL_SetGanancias(&m->izq, kp_izq, ki_izq, kd_izq);
+    CTRL_SetGanancias(&m->der, kp_der, ki_der, kd_der);
+}
+
+/**
  * @brief Prepara las primitivas: arranca los dos lazos y pone la pose en el origen.
  */
 void MOTION_Init(Motion_t *m,
                  DRV8833_Motor_t *motor_izq,
-                 DRV8833_Motor_t *motor_der,
-                 float kp, float ki, float kd)
+                 DRV8833_Motor_t *motor_der)
 {
-    CTRL_Init(&m->izq, kp, ki, kd, MOTION_DUTY_MAX);
-    CTRL_Init(&m->der, kp, ki, kd, MOTION_DUTY_MAX);
+    CTRL_Init(&m->izq, 0.0f, 0.0f, 0.0f, MOTION_DUTY_MAX);
+    CTRL_Init(&m->der, 0.0f, 0.0f, 0.0f, MOTION_DUTY_MAX);
     CTRL_SetRampa(&m->izq, MOTION_RAMPA_MM_S2);
     CTRL_SetRampa(&m->der, MOTION_RAMPA_MM_S2);
 
@@ -483,7 +500,8 @@ void MOTION_Init(Motion_t *m,
 
     ODOM_Init(&m->odo, 0.0f, 0.0f, 0.0f);
 
-    update_encoder_readings();
+    /* La lectura ya viene fresca de la interrupción de control: aquí solo hay que tomar la referencia,
+       que es lo que marca dónde empieza a contar este movimiento. */
     m->um_izq_previo = get_encoder_left_micrometers();
     m->um_der_previo = get_encoder_right_micrometers();
 
@@ -577,6 +595,7 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
     uint32_t t_inicio = HAL_GetTick();
     uint32_t t_ultimo = t_inicio;
     uint8_t  llegado  = 0U;
+    uint16_t t_lazo   = TIM_Cuentas();   /* cronómetro de la vuelta del lazo (se cierra al final) */
 
     /* El rumbo del giroscopio se mide **desde aquí**, y eso es justo lo que lo hace útil: la
        referencia es el rumbo que el robot tenga en este instante, aunque venga torcido del movimiento
@@ -672,6 +691,12 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
         motion_paso(m, vel - correccion, vel + correccion, dt);
 
         HAL_Delay(MOTION_PASO_MS);
+
+        /* El tramo se cierra **después** de la espera, así que el máximo es el periodo real de la
+           vuelta (trabajo + espera) y no solo lo que tarda el cálculo, que es lo que interesa para
+           saber cuánto retardo mete el lazo. */
+        TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
+        t_lazo = TIM_Cuentas();
     }
 
     motion_asentar(m);
@@ -700,6 +725,7 @@ uint8_t MOTION_Girar(Motion_t *m, float grados)
     int32_t  um_izq_0     = m->um_izq_previo;
     int32_t  um_der_0     = m->um_der_previo;
     uint32_t t_inicio     = HAL_GetTick();
+    uint16_t t_lazo       = TIM_Cuentas();   /* cronómetro de la vuelta del lazo (se cierra al final) */
     uint32_t t_ultimo     = t_inicio;
     uint8_t  llegado      = 0U;
 
@@ -860,6 +886,9 @@ uint8_t MOTION_Girar(Motion_t *m, float grados)
         motion_paso(m, -vel + centro_mm_s, vel + centro_mm_s, dt);
 
         HAL_Delay(MOTION_PASO_MS);
+
+        TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
+        t_lazo = TIM_Cuentas();
     }
 
     motion_asentar(m);

@@ -1,6 +1,8 @@
 #include "app/application.h"
 #include "app/buttons.h"
 #include "app/console.h"
+#include "app/control_loop.h"
+#include "app/format.h"
 #include "app/fsm.h"
 #include "app/menu.h"
 #include "app/motion.h"
@@ -31,6 +33,7 @@
 
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 /**
  * @file application.c
@@ -53,6 +56,11 @@ static const Menu_Entrada_t *app_elegida;
    inmediato (la batería sigue igual de baja): no se reintenta hasta que la medida se recupere. */
 static uint8_t fault_reconocido;
 
+/* El voltaje de la cabecera del menú se refresca por tiempo y no en cada vuelta: el bucle del menú
+   corre a ~40 Hz y cada repintado son ~50 ms de bus I2C, así que a 2 s el coste es de un 2,5 %. */
+#define APP_PERIODO_VOLTAJE_MS  2000U
+static uint32_t app_t_voltaje;
+
 static void app_aviso_bateria(uint8_t mostrar_salida);
 static void app_fsm_paso(void);
 static void app_publicar_estado(AppState_t estado);
@@ -72,6 +80,13 @@ void APP_InitAll(void)
     RESET_LeerCausa();
 
     SystemClock_Config();
+
+    /* La base de tiempos del cronómetro (`hal/timers.h`) va lo primero de todo lo que se mide: desde
+       aquí en adelante la UART y la OLED ya se cronometran, así que el contador tiene que existir
+       antes de la primera llamada instrumentada. Va después del reloj porque su prescaler depende
+       del APB1. */
+    MX_TIM4_Init();
+
     LEDINBOARD_GPIO_CLK_ENABLE();
     MX_GPIO_Init();
 
@@ -119,6 +134,12 @@ void APP_InitAll(void)
     ENC_ResetPulses();
     ENC_ResetCount1();
     ENC_ResetCount2();
+
+    /* El lazo de control arranca **en interrupción**, y empieza solo muestreando: los contadores de
+       TIM2 y TIM3 ya están listos (los acaba de configurar `ENC_Init()`), así que la interrupción se
+       enciende justo después. De momento **no regula nada** —nadie ha registrado un lazo— pero ya deja
+       la velocidad estimada con la ventana de 20 ms que toca, igual en el banco que en la misión. */
+    LOOP_Init();
 
     BATTERY_Init();
 
@@ -180,87 +201,111 @@ void APP_InitAll(void)
  * @note Para **recuperar una prueba**: descomentar su fila. Nada más.
  * @see Documentacion/pruebas-bringup.md (catálogo de pruebas)
  */
-static const Menu_Entrada_t menu_test_analogico[] = {
-    { "ADC",           MENU_TIPO_LANZAR, App_Test_ADC,           0U },
-    /* BATERIA VUELVE (2026-10-02, por la tarde): en el laberinto **no habrá PC**, así que la orden
-       `BAT LIST` no existe y sin esta prueba no habría **ninguna** forma de leer la batería hasta que
-       apareciera el FAULT. Cuesta ~1,1 KB y sobran 16. */
-    { "BATERIA",       MENU_TIPO_LANZAR, App_Test_Bateria,       0U },
-    /* Retirada: ADC SOLDADURA (13) */
-    /* { "ADC SOLDADURA", MENU_TIPO_LANZAR, App_Test_ADC_Soldadura, 0U }, */
+/**
+ * @brief Alimentación: tensión del pack y de cada celda, con su desequilibrio.
+ *
+ * `UMBRALES` y `CALIBRAR` son marcadores: hoy se tocan con las órdenes `BAT` de la consola
+ * (`BAT CRIT_PACK 6000`), que en el laberinto no sirven porque no hay PC.
+ *
+ * Aquí vivía también el `ADC` crudo (prueba 1). Se retiró: lo que interesa de cada canal lo enseña
+ * ya `IR -> LECTURA`, con el emisor identificado.
+ */
+static const Menu_Entrada_t menu_bateria[] = {
+    { "TENSIONES", MENU_TIPO_LANZAR,  App_Test_Bateria, 0U },
+    { "UMBRALES",  MENU_TIPO_NINGUNA, NULL,             0U },
+    { "CALIBRAR",  MENU_TIPO_NINGUNA, NULL,             0U },
 };
 
-static const Menu_Entrada_t menu_test_ir[] = {
-    { "PAREDES",       MENU_TIPO_LANZAR, App_Test_Paredes,       0U },
-    /* EMISORES IR VUELVE (2026-10-02, por la tarde): es la herramienta para **alinear el apuntado**
-       de los focos con un folio blanco y la camara del movil. Con `5` se encienden **los cuatro a la
-       vez**, y el que apunta a otra provincia se ve de un vistazo; con el parpadeo a 4 Hz de la 16
-       habia que mirarlos de uno en uno y adivinar. */
-    { "EMISORES IR",   MENU_TIPO_LANZAR, App_Test_EmisoresIR,    0U },
-    /* IR RECEPTORES y VER R0..R3 VUELVEN TAMBIEN (2026-10-02): son **la matriz 4x4** -- encienden
-       cada emisor y ensenan lo que recibe CADA receptor --, y son la unica forma de comprobar el
-       emparejamiento con el montaje delante de los ojos. El de hardware.md se dedujo con una pared
-       de frente a 10 cm, y con una pared delante **los cuatro emisores iluminan a los cuatro
-       receptores**: la pareja «ganadora» pudo ser simplemente la mas cercana, no la buena. */
-    { "IR RECEPTORES", MENU_TIPO_LANZAR, App_Test_IR_Receptores, 0U },
-    { "VER R0",        MENU_TIPO_LANZAR, App_Test_R0,            0U },
-    { "VER R1",        MENU_TIPO_LANZAR, App_Test_R1,            0U },
-    { "VER R2",        MENU_TIPO_LANZAR, App_Test_R2,            0U },
-    { "VER R3",        MENU_TIPO_LANZAR, App_Test_R3,            0U },
-    { "IR MODULADO",   MENU_TIPO_LANZAR, App_Test_IR_Modulado,   0U },
-    { "CURVA IR",      MENU_TIPO_LANZAR, App_Test_CalibracionIR, 0U },
+/**
+ * @brief Infrarrojo: emitir, leer y los dos ajustes que se hacen **en el laberinto**.
+ *
+ * `UMBRALES` es la prueba 21 y es la entrada que más se va a usar de este submenú: las paredes del
+ * laberinto no reflejan como las de casa y allí no hay PC, así que los tres umbrales de pared hay que
+ * poder moverlos con los botones.
+ *
+ * `ENCENDER` enciende los emisores de uno en uno o los cuatro juntos. La **secuencia rápida** que se
+ * quiere para alinear el apuntado todavía no está hecha.
+ */
+static const Menu_Entrada_t menu_ir[] = {
+    /* EMISORES IR: es la herramienta para alinear el apuntado de los focos con un folio blanco y la
+       cámara del móvil. Con `5` se encienden los cuatro a la vez, y el que apunta a otra provincia se
+       ve de un vistazo; con el parpadeo a 4 Hz de la prueba 16 había que mirarlos de uno en uno. */
+    { "ENCENDER", MENU_TIPO_LANZAR, App_Test_EmisoresIR,    0U },
+    /* LECTURA: la matriz 4x4. Enciende cada emisor y enseña lo que recibe **cada** receptor, y es la
+       única forma de comprobar el emparejamiento con el montaje delante de los ojos. El de
+       `hardware.md` se dedujo con una pared de frente a 10 cm, y con una pared delante **los cuatro
+       emisores iluminan a los cuatro receptores**: la pareja «ganadora» pudo ser la más cercana. */
+    { "LECTURA",  MENU_TIPO_LANZAR, App_Test_IR_Receptores, 0U },
+    { "UMBRALES", MENU_TIPO_LANZAR, App_Test_Paredes,       0U },
+    { "MODULADO", MENU_TIPO_LANZAR, App_Test_IR_Modulado,   0U },
+    { "CURVA",    MENU_TIPO_LANZAR, App_Test_CalibracionIR, 0U },
+    /* Retiradas: VER R0..R3. `LECTURA` enseña los cuatro receptores a la vez y con el emisor
+       identificado, que es justo lo que hacía falta; de uno en uno solo se veía un número. */
+    /* { "VER R0", MENU_TIPO_LANZAR, App_Test_R0, 0U }, */
+    /* { "VER R1", MENU_TIPO_LANZAR, App_Test_R1, 0U }, */
+    /* { "VER R2", MENU_TIPO_LANZAR, App_Test_R2, 0U }, */
+    /* { "VER R3", MENU_TIPO_LANZAR, App_Test_R3, 0U }, */
 };
 
-static const Menu_Entrada_t menu_test_motores[] = {
-    { "MOVIMIENTO",    MENU_TIPO_LANZAR, App_Test_Movimiento,           0U },
-    /* Retiradas: ENCODERS (5) · PPR y UM MOTORES (7) · MOTORES ENCOD (5) · MIN M1/M2/AMBOS (2, 3)
-       · COMPARA M · RAMPA PWM (9) · ODOMETRIA (19). Todas medidas, y sus números (µm/cuenta,
-       trocha) viven ya en los ajustes: repetirlas no cambiaría nada */
-    /* { "ENCODERS",      MENU_TIPO_LANZAR, App_Test_Encoders,            0U }, */
-    /* { "PPR A MANO",    MENU_TIPO_LANZAR, App_Test_PPR,                0U }, */
-    /* { "UM MOTORES",    MENU_TIPO_LANZAR, App_Test_UmCuenta,           0U }, */
-    /* { "MOTORES ENCOD", MENU_TIPO_LANZAR, App_Test_MotoresEncoders,     0U }, */
-    /* { "MIN M1",        MENU_TIPO_LANZAR, App_Test_MinM1,               0U }, */
-    /* { "MIN M2",        MENU_TIPO_LANZAR, App_Test_MinM2,               0U }, */
-    /* { "MIN AMBOS",     MENU_TIPO_LANZAR, App_Test_MinAmbos,            0U }, */
-    /* { "COMPARA M",     MENU_TIPO_LANZAR, App_Test_ComparaMotores,      0U }, */
-    /* { "RAMPA PWM",     MENU_TIPO_LANZAR, App_Test_PWM_Rampa,           0U }, */
-    { "PID VELOCIDAD", MENU_TIPO_LANZAR, App_Test_PID,                 0U },
-    /* { "ODOMETRIA",     MENU_TIPO_LANZAR, App_Test_Odometria,           0U }, */
+/**
+ * @brief Motores: sintonía, encoders, movimiento y la calibración de las ruedas.
+ *
+ * `SINTONIA` es **una sola entrada para las dos ruedas**: la prueba ya corre dos lazos (`lazo_izq` y
+ * `lazo_der`) y publica los dos, pero el juego de ganancias que se mueve con los botones es **común**.
+ * Cuando `core/motion.c` tenga ganancias por rueda, esta fila se parte en `SINTONIA IZQ` y
+ * `SINTONIA DER` sin tocar el motor del menú.
+ */
+static const Menu_Entrada_t menu_motores[] = {
+    { "SINTONIA",   MENU_TIPO_LANZAR,  App_Test_PID,        0U },
+    { "ENCODERS",   MENU_TIPO_LANZAR,  App_Test_Encoders,   0U },
+    /* MOVIMIENTO mide la celda y el giro de 90 grados: es la prueba sobre la que se apoya todo lo que
+       viene después (odometría, giros, flood fill). */
+    { "MOVIMIENTO", MENU_TIPO_LANZAR,  App_Test_Movimiento, 0U },
+    { "CALIBRAR",   MENU_TIPO_SUBMENU, NULL,                8U },
+    /* Retiradas: MOTORES ENCOD (5) · MIN M1/M2/AMBOS (2, 3) · COMPARA M · RAMPA PWM (9) ·
+       ODOMETRIA (19). Todas medidas, y sus números (µm/cuenta, trocha) viven ya en los ajustes:
+       repetirlas no cambiaría nada. */
+    /* { "COMPARA M", MENU_TIPO_LANZAR, App_Test_ComparaMotores, 0U }, */
+    /* { "ODOMETRIA", MENU_TIPO_LANZAR, App_Test_Odometria,      0U }, */
 };
 
-static const Menu_Entrada_t menu_test_varios[] = {
-    { "WIFI AL PC",    MENU_TIPO_LANZAR, App_Test_Puente,        0U },
-    { "ESP8266",      MENU_TIPO_LANZAR, App_Test_ESP8266,       0U },
-    /* Retiradas: IMU (4) · BOTONES OLED · I2C SCAN (11, sigue en DIAG) · SPI LOOPBACK (6,
-       validada el 10-sep; el bucle PB15→PB14 no se va a mover) */
-    /* { "IMU",           MENU_TIPO_LANZAR, App_Test_IMU,           0U }, */
-    /* { "BOTONES OLED",  MENU_TIPO_LANZAR, App_Test_BotonesOLED,   0U }, */
-    /* { "I2C SCAN",      MENU_TIPO_LANZAR, App_Test_I2C_Scan,      0U }, */
-    /* { "SPI LOOPBACK",  MENU_TIPO_LANZAR, App_Test_SPI2_Loopback, 0U }, */
+/**
+ * @brief Calibración de las ruedas: cuántas cuentas da una vuelta y cuánto avanza una cuenta.
+ *
+ * Son los dos números que necesitan la odometría y el control, así que son la primera parada cada vez
+ * que se toque el PWM o se cambie un motor.
+ */
+static const Menu_Entrada_t menu_motores_calibrar[] = {
+    { "PPR A MANO", MENU_TIPO_LANZAR, App_Test_PPR,      0U },
+    { "UM/CUENTA",  MENU_TIPO_LANZAR, App_Test_UmCuenta, 0U },
 };
 
-static const Menu_Entrada_t menu_test[] = {
-    { "ANALOGICO", MENU_TIPO_SUBMENU, NULL, 1U },
-    { "IR",        MENU_TIPO_SUBMENU, NULL, 2U },
-    { "MOTORES",   MENU_TIPO_SUBMENU, NULL, 3U },
-    { "VARIOS",    MENU_TIPO_SUBMENU, NULL, 4U },
+/**
+ * @brief Telemetría: el puente al PC, el módulo WiFi y las dos herramientas de a bordo.
+ */
+static const Menu_Entrada_t menu_telemetria[] = {
+    { "PUENTE WIFI", MENU_TIPO_LANZAR,  App_Test_Puente,  0U },
+    { "ESP8266",     MENU_TIPO_LANZAR,  App_Test_ESP8266, 0U },
+    /* La consola (órdenes `PID`, `BAT`, `HELP`…) y la traza del lazo funcionan, pero sus pantallas de
+       ayuda no están hechas: se usan desde el PC. */
+    { "TRAZA",       MENU_TIPO_NINGUNA, NULL,             0U },
+    { "CONSOLA",     MENU_TIPO_NINGUNA, NULL,             0U },
 };
 
 /**
  * @brief Navegación del laberinto.
  *
- * `WALL FOLLOWER` ya es real; `FLOOD FILL` sigue siendo un marcador hasta que haya mapa en RAM.
+ * `MANO DERECHA` ya es real; `FLOOD FILL` sigue siendo un marcador hasta que haya mapa en RAM.
  */
-static const Menu_Entrada_t menu_explore[] = {
-    { "WALL FOLLOWER", MENU_TIPO_LANZAR,  App_Test_WallFollower, 0U },
-    { "FLOOD FILL",    MENU_TIPO_NINGUNA, NULL,                  0U },
+static const Menu_Entrada_t menu_exploracion[] = {
+    { "MANO DERECHA", MENU_TIPO_LANZAR,  App_Test_WallFollower, 0U },
+    { "FLOOD FILL",   MENU_TIPO_NINGUNA, NULL,                  0U },
 };
 
 /**
  * @brief Resolver el laberinto: la vuelta rápida, con la velocidad de crucero ya conocida.
  */
-static const Menu_Entrada_t menu_resolve[] = {
+static const Menu_Entrada_t menu_resolucion[] = {
     { "RESOLVER", MENU_TIPO_NINGUNA, NULL, 0U },
 };
 
@@ -269,56 +314,59 @@ static const Menu_Entrada_t menu_resolve[] = {
  *
  * Los valores viven en `app/settings.c` y cada capa tiene su setter con validación
  * (`BATTERY_SetUmbral()`, `CTRL_SetGanancias()`, …): la APP empuja, nadie lee ajustes por su cuenta.
+ * La velocidad de crucero, de momento, se ajusta dentro de `MOTORES -> SINTONIA`.
  */
-static const Menu_Entrada_t menu_settings[] = {
-    { "BATERIA",    MENU_TIPO_NINGUNA, NULL, 0U },
-    { "VELOCIDAD",  MENU_TIPO_NINGUNA, NULL, 0U },
-    { "PID",        MENU_TIPO_NINGUNA, NULL, 0U },
-    { "LABERINTO",  MENU_TIPO_NINGUNA, NULL, 0U },
-    { "TELEMETRIA", MENU_TIPO_NINGUNA, NULL, 0U },
-    { "GUARDAR",    MENU_TIPO_NINGUNA, NULL, 0U },
-    { "RESET",      MENU_TIPO_NINGUNA, NULL, 0U },
+static const Menu_Entrada_t menu_ajustes[] = {
+    { "VELOCIDAD", MENU_TIPO_NINGUNA, NULL, 0U },
+    { "GUARDAR",   MENU_TIPO_NINGUNA, NULL, 0U },
+    { "INFO",      MENU_TIPO_NINGUNA, NULL, 0U },
 };
 
 /**
- * @brief Diagnóstico de buses y de la alimentación.
+ * @brief Diagnóstico: los buses, los sensores y por qué se reinició la placa.
+ *
+ * Es la salida cuando la pantalla o el bus no responden, así que no depende de nada de lo de arriba.
  */
-static const Menu_Entrada_t menu_diag[] = {
-    { "BUS I2C",      MENU_TIPO_LANZAR, App_Test_I2C_Scan,      0U },
-    /* Retiradas: SPI LOOPBACK (6) · BATERIA (12), que se lee por la orden `BAT LIST` */
+static const Menu_Entrada_t menu_diagnostico[] = {
+    { "BUS I2C",  MENU_TIPO_LANZAR,  App_Test_I2C_Scan,      0U },
+    { "IMU",      MENU_TIPO_LANZAR,  App_Test_IMU,           0U },
+    /* El chequeo de soldadura del ADC vuelve: es la comprobación de que los cuatro canales de los
+       receptores están soldados de verdad y no flotando. */
+    { "SENSORES", MENU_TIPO_LANZAR,  App_Test_ADC_Soldadura, 0U },
+    /* La causa del último reinicio ya se publica como `>RESET` al arrancar; aquí va la pantalla. */
+    { "RESET",    MENU_TIPO_NINGUNA, NULL,                   0U },
+    /* Retirada: SPI LOOPBACK (6), validada el 10-sep; el bucle PB15->PB14 no se va a mover. */
     /* { "SPI LOOPBACK", MENU_TIPO_LANZAR, App_Test_SPI2_Loopback, 0U }, */
-    /* { "BATERIA",      MENU_TIPO_LANZAR, App_Test_Bateria,       0U }, */
 };
 
-static const Menu_Tabla_t menu_test_tabla = {
-    "TEST", menu_test, (uint8_t)(sizeof(menu_test) / sizeof(menu_test[0]))
+static const Menu_Tabla_t menu_bateria_tabla = {
+    "BATERIA", menu_bateria, (uint8_t)(sizeof(menu_bateria) / sizeof(menu_bateria[0]))
 };
-static const Menu_Tabla_t menu_test_analogico_tabla = {
-    "TEST ANALOGICO", menu_test_analogico,
-    (uint8_t)(sizeof(menu_test_analogico) / sizeof(menu_test_analogico[0]))
+static const Menu_Tabla_t menu_ir_tabla = {
+    "IR", menu_ir, (uint8_t)(sizeof(menu_ir) / sizeof(menu_ir[0]))
 };
-static const Menu_Tabla_t menu_test_ir_tabla = {
-    "TEST IR", menu_test_ir, (uint8_t)(sizeof(menu_test_ir) / sizeof(menu_test_ir[0]))
+static const Menu_Tabla_t menu_motores_tabla = {
+    "MOTORES", menu_motores, (uint8_t)(sizeof(menu_motores) / sizeof(menu_motores[0]))
 };
-static const Menu_Tabla_t menu_test_motores_tabla = {
-    "TEST MOTORES", menu_test_motores,
-    (uint8_t)(sizeof(menu_test_motores) / sizeof(menu_test_motores[0]))
+static const Menu_Tabla_t menu_telemetria_tabla = {
+    "TELEMETRIA", menu_telemetria, (uint8_t)(sizeof(menu_telemetria) / sizeof(menu_telemetria[0]))
 };
-static const Menu_Tabla_t menu_test_varios_tabla = {
-    "TEST VARIOS", menu_test_varios,
-    (uint8_t)(sizeof(menu_test_varios) / sizeof(menu_test_varios[0]))
+static const Menu_Tabla_t menu_exploracion_tabla = {
+    "EXPLORACION", menu_exploracion, (uint8_t)(sizeof(menu_exploracion) / sizeof(menu_exploracion[0]))
 };
-static const Menu_Tabla_t menu_explore_tabla = {
-    "EXPLORE", menu_explore, (uint8_t)(sizeof(menu_explore) / sizeof(menu_explore[0]))
+static const Menu_Tabla_t menu_resolucion_tabla = {
+    "RESOLUCION", menu_resolucion, (uint8_t)(sizeof(menu_resolucion) / sizeof(menu_resolucion[0]))
 };
-static const Menu_Tabla_t menu_resolve_tabla = {
-    "RESOLVE", menu_resolve, (uint8_t)(sizeof(menu_resolve) / sizeof(menu_resolve[0]))
+static const Menu_Tabla_t menu_ajustes_tabla = {
+    "AJUSTES", menu_ajustes, (uint8_t)(sizeof(menu_ajustes) / sizeof(menu_ajustes[0]))
 };
-static const Menu_Tabla_t menu_settings_tabla = {
-    "SETTINGS", menu_settings, (uint8_t)(sizeof(menu_settings) / sizeof(menu_settings[0]))
+static const Menu_Tabla_t menu_diagnostico_tabla = {
+    "DIAGNOSTICO", menu_diagnostico,
+    (uint8_t)(sizeof(menu_diagnostico) / sizeof(menu_diagnostico[0]))
 };
-static const Menu_Tabla_t menu_diag_tabla = {
-    "DIAG", menu_diag, (uint8_t)(sizeof(menu_diag) / sizeof(menu_diag[0]))
+static const Menu_Tabla_t menu_motores_calibrar_tabla = {
+    "CALIBRAR", menu_motores_calibrar,
+    (uint8_t)(sizeof(menu_motores_calibrar) / sizeof(menu_motores_calibrar[0]))
 };
 
 /**
@@ -327,28 +375,35 @@ static const Menu_Tabla_t menu_diag_tabla = {
  * ⚠️ El orden de esta lista es el contrato: los índices que usan las filas de arriba apuntan aquí.
  */
 static const Menu_Tabla_t *const submenus[] = {
-    &menu_test_tabla,           /* 0 · TEST               */
-    &menu_test_analogico_tabla, /* 1 · TEST → ANALOGICO   */
-    &menu_test_ir_tabla,        /* 2 · TEST → IR          */
-    &menu_test_motores_tabla,   /* 3 · TEST → MOTORES     */
-    &menu_test_varios_tabla,    /* 4 · TEST → VARIOS      */
-    &menu_explore_tabla,        /* 5 · EXPLORE            */
-    &menu_resolve_tabla,        /* 6 · RESOLVE            */
-    &menu_settings_tabla,       /* 7 · SETTINGS           */
-    &menu_diag_tabla,           /* 8 · DIAG               */
+    &menu_bateria_tabla,          /* 0 · BATERIA            */
+    &menu_ir_tabla,               /* 1 · IR                 */
+    &menu_motores_tabla,          /* 2 · MOTORES            */
+    &menu_telemetria_tabla,       /* 3 · TELEMETRIA         */
+    &menu_exploracion_tabla,      /* 4 · EXPLORACION        */
+    &menu_resolucion_tabla,       /* 5 · RESOLUCION         */
+    &menu_ajustes_tabla,          /* 6 · AJUSTES            */
+    &menu_diagnostico_tabla,      /* 7 · DIAGNOSTICO        */
+    &menu_motores_calibrar_tabla, /* 8 · MOTORES → CALIBRAR */
 };
 #define APP_N_SUBMENUS   ((uint8_t)(sizeof(submenus) / sizeof(submenus[0])))
 
 /**
- * @brief Raíz: entrar en un bloque, ver los ajustes o parar ya.
+ * @brief Raíz: los bloques de trabajo, en el orden en que se usan en una sesión.
+ *
+ * Son **nueve** filas para tres visibles, así que la cabecera lleva el contador (`1/9`) y hay que
+ * bajar con DOWN. El orden no es casual: primero se mira la batería, luego lo que hay que ajustar
+ * (IR y motores), después la misión y, al final, el diagnóstico.
  */
 static const Menu_Entrada_t menu_raiz_entradas[] = {
-    { "TEST",     MENU_TIPO_SUBMENU, NULL, 0U },
-    { "EXPLORE",  MENU_TIPO_SUBMENU, NULL, 5U },
-    { "RESOLVE",  MENU_TIPO_SUBMENU, NULL, 6U },
-    { "SETTINGS", MENU_TIPO_SUBMENU, NULL, 7U },
-    { "DIAG",     MENU_TIPO_SUBMENU, NULL, 8U },
-    { "PARAR",    MENU_TIPO_PARAR,   NULL, 0U },
+    { "BATERIA",     MENU_TIPO_SUBMENU, NULL, 0U },
+    { "IR",          MENU_TIPO_SUBMENU, NULL, 1U },
+    { "MOTORES",     MENU_TIPO_SUBMENU, NULL, 2U },
+    { "TELEMETRIA",  MENU_TIPO_SUBMENU, NULL, 3U },
+    { "EXPLORACION", MENU_TIPO_SUBMENU, NULL, 4U },
+    { "RESOLUCION",  MENU_TIPO_SUBMENU, NULL, 5U },
+    { "AJUSTES",     MENU_TIPO_SUBMENU, NULL, 6U },
+    { "DIAGNOSTICO", MENU_TIPO_SUBMENU, NULL, 7U },
+    { "PARAR",       MENU_TIPO_PARAR,   NULL, 0U },
 };
 static const Menu_Tabla_t menu_raiz = {
     "RABOSA-MVR", menu_raiz_entradas,
@@ -411,6 +466,45 @@ static void app_mostrar_prueba(const char *etiqueta)
     OLED_Update();
 }
 
+/* Petición de prueba llegada por consola (orden `TEST`). La consume el despachador de la FSM, que es
+   el único que puede cambiar de estado. */
+static const Menu_Entrada_t *app_test_pedido;
+
+/**
+ * @brief Pide lanzar una prueba por su nombre del menú (orden `TEST` de la consola).
+ *
+ * Existe para **guionizar el banco desde el PC**: con el puente WiFi se puede lanzar la prueba, leer
+ * su respuesta con marca de tiempo y salir, sin tocar los botones del robot. Es lo que hace posible
+ * sintonizar las dos ruedas una detrás de otra.
+ *
+ * Busca en **todas** las tablas de submenú una entrada de tipo `LANZAR` con esa etiqueta.
+ *
+ * @param etiqueta Nombre de la prueba, tal como aparece en el menú
+ * @return 1 si se ha aceptado, 0 si no existe o si no se está en el menú
+ */
+uint8_t APP_Test_Pedir(const char *etiqueta)
+{
+    if ((etiqueta == NULL) || (app_state != APP_STATE_MENU)) {
+        return 0U;
+    }
+
+    for (uint8_t t = 0U; t < APP_N_SUBMENUS; t++) {
+        const Menu_Tabla_t *tabla = submenus[t];
+
+        for (uint8_t i = 0U; i < tabla->n; i++) {
+            const Menu_Entrada_t *entrada = &tabla->entradas[i];
+
+            if ((entrada->tipo == MENU_TIPO_LANZAR) &&
+                (strcmp(entrada->etiqueta, etiqueta) == 0)) {
+                app_test_pedido = entrada;
+                return 1U;
+            }
+        }
+    }
+
+    return 0U;
+}
+
 /**
  * @brief Un paso de la máquina de estados de la aplicación.
  *
@@ -439,6 +533,20 @@ static void app_fsm_paso(void)
                 APP_GOTO(FAULT);
             }
 
+            /* Orden `TEST <etiqueta>` de la consola: se entra en la prueba como si se hubiera elegido
+               en el menú. Se consume **aquí**, en el despachador, porque es el único sitio que puede
+               cambiar de estado; así el camino es exactamente el mismo que el de los botones. */
+            if (app_test_pedido != NULL) {
+                app_elegida     = app_test_pedido;
+                app_test_pedido = NULL;
+
+                TELEM_SendInt("APP_TEST", 1);
+                TELEM_SendInt("APP_TEST_REM", 1);
+                app_mostrar_prueba(app_elegida->etiqueta);
+                TIM_ResetMaximos();
+                fsmgoto(TEST);
+            }
+
             /* Despacho al estado en que se quedó la máquina */
             switch (app_state) {
             case APP_STATE_MENU:  fsmgoto(MENU);
@@ -452,6 +560,11 @@ static void app_fsm_paso(void)
         }
 
         fsmstate(BOOT) {
+            /* El voltaje se fija antes de MENU_Init() porque es MENU_Init() quien dibuja la raíz:
+               si se dejara para después, la primera pantalla saldría sin el número. */
+            MENU_SetVoltaje(BATTERY_GetPackV());
+            app_t_voltaje = HAL_GetTick();
+
             MENU_Init(&menu_raiz, submenus, APP_N_SUBMENUS);
             APP_GOTO(MENU);
         }
@@ -460,6 +573,14 @@ static void app_fsm_paso(void)
             app_elegida = MENU_Update();
 
             if (app_elegida == NULL) {
+                /* Se repinta solo el número, no la pantalla entera: MENU_Dibujar() limpia el
+                   framebuffer y el parpadeo se ve. */
+                if ((HAL_GetTick() - app_t_voltaje) >= APP_PERIODO_VOLTAJE_MS) {
+                    app_t_voltaje = HAL_GetTick();
+                    MENU_SetVoltaje(BATTERY_GetPackV());
+                    MENU_RefrescarVoltaje();
+                }
+
                 fsmexit;   /* nada pulsado: se sigue en el menú */
             }
 
@@ -472,6 +593,10 @@ static void app_fsm_paso(void)
                 TELEM_SendInt("APP_TEST", 1);
                 TELEM_SendInt("APP_TEST_N", (int32_t)MENU_IndiceActual());
                 app_mostrar_prueba(app_elegida->etiqueta);
+
+                /* Los máximos se ponen a cero al entrar en la prueba, y **después** del cartel: así
+                   la orden `LAZO` habla de la prueba que se acaba de lanzar y no de la anterior. */
+                TIM_ResetMaximos();
                 APP_GOTO(TEST);
             }
 
@@ -837,21 +962,27 @@ typedef enum {
 /**
  * @brief Pone los contadores a cero de forma robusta y deja las referencias.
  *
- * Se hacen DOS lecturas seguidas tras el reset: la segunda da diferencia cero, así el total acumulado
- * queda limpio aunque update_encoder_readings() se hubiera llamado antes.
+ * Se hace con la **interrupción de control pausada**, y no es un detalle: entre el reset de los
+ * contadores y el vaciado, la interrupción leería el contador a cero y le metería al total acumulado
+ * un salto del tamaño del contador. Las dos lecturas seguidas siguen haciendo falta para que la
+ * referencia del estimador quede a cero.
  *
  * @param base_l Referencia de la rueda izquierda
  * @param base_r Referencia de la rueda derecha
  */
 static void cal_encoders_referencias(int32_t *base_l, int32_t *base_r)
 {
+    LOOP_Pausa();
+
     ENC_ResetCount1();
     ENC_ResetCount2();
-    update_encoder_readings();
-    update_encoder_readings();
+    LOOP_Muestrear();
+    LOOP_Muestrear();
 
     *base_l = get_encoder_left_total_count();
     *base_r = get_encoder_right_total_count();
+
+    LOOP_Reanuda();
 }
 
 /**
@@ -881,9 +1012,15 @@ static void app_pantalla_enc_ppr(int32_t pulsos_l, int32_t pulsos_r, float ppr)
                                   ? (CAL_DISTANCIA_MEDIDA_MM * 1000.0f) / pulsos_medios
                                   : 0.0f;
 
-        snprintf(linea, sizeof(linea), "UM/C %.1f", (double)um_cuenta);
+        char dato[12];
+
+        FORMAT_Float(dato, sizeof(dato), um_cuenta, 1U);
+        snprintf(linea, sizeof(linea), "UM/C %s", dato);
     } else {
-        snprintf(linea, sizeof(linea), "PPR %.2f", (double)ppr);
+        char dato[12];
+
+        FORMAT_Float(dato, sizeof(dato), ppr, 2U);
+        snprintf(linea, sizeof(linea), "PPR %s", dato);
     }
 
     oled_print_line(2U, linea);
@@ -931,8 +1068,6 @@ static void cal_encoders_por_mano(int32_t base_l, int32_t base_r)
 
 
     while (!BUTTONS_SalidaSolicitada()) {
-        update_encoder_readings();
-
         if ((HAL_GetTick() - t_impresion) >= 100U) {
             int32_t pulsos_l;
             int32_t pulsos_r;
@@ -1081,14 +1216,12 @@ static void cal_encoders_con_motores(int32_t base_l, int32_t base_r)
 
         DRV8833_Set_Speed(&motor1, (int16_t)duty);
         DRV8833_Set_Speed(&motor2, (int16_t)duty);
-        update_encoder_readings();
         HAL_Delay(CAL_RAMPA_PASO_MS);
     }
 
     t0 = HAL_GetTick();
 
     while ((run_l || run_r) && !BUTTONS_SalidaSolicitada()) {
-        update_encoder_readings();
         BATTERY_Update();
 
         if ((HAL_GetTick() - t_vbat) >= 100U) {
@@ -1147,7 +1280,6 @@ static void cal_encoders_con_motores(int32_t base_l, int32_t base_r)
 
     t0 = HAL_GetTick();
     while ((HAL_GetTick() - t0) < 500U) {
-        update_encoder_readings();
         HAL_Delay(1);
     }
 
@@ -1301,7 +1433,6 @@ void App_Test_ComparaMotores(void)
     }
 
     HAL_Delay(COMP_MS);
-    update_encoder_readings();
 
     p1 = get_encoder_left_total_count() - base_l;
     p2 = get_encoder_right_total_count() - base_r;
@@ -1408,7 +1539,6 @@ static void app_test_arranque(uint8_t motores)
         TELEM_SendInt("ARR_DUTY", (int32_t)duty);
 
         HAL_Delay(ARR_PASO_MS);
-        update_encoder_readings();
 
         l1 = get_encoder_left_total_count() - base_l;
         r1 = get_encoder_right_total_count() - base_r;
@@ -1861,7 +1991,10 @@ static void app_aviso_bateria(uint8_t mostrar_salida)
         OLED_Clear();
 
         /* El FAULT lleva tres líneas a escala 1: con las dos a escala 2 no cabe decir cómo salir */
-        snprintf(texto, sizeof(texto), "%s %.2fV", rotulo, (double)BATTERY_GetAvisoV());
+        char voltios[12];
+
+        FORMAT_Float(voltios, sizeof(voltios), BATTERY_GetAvisoV(), 2U);
+        snprintf(texto, sizeof(texto), "%s %sV", rotulo, voltios);
         oled_print_line(0U, texto);
         oled_print_line(1U, "MOTORES PARADOS");
         oled_print_line(2U, "OK: VOLVER AL MENU");
@@ -1900,22 +2033,32 @@ static void app_pantalla_bateria(void)
     oled_print_line(0U, texto);
 
     if (BATTERY_PackPresente() != 0U) {
-        snprintf(texto, sizeof(texto), "TOTAL %5.2fV", (double)BATTERY_GetPackV());
+        char voltios[12];
+
+        FORMAT_Float(voltios, sizeof(voltios), BATTERY_GetPackV(), 2U);
+        snprintf(texto, sizeof(texto), "TOTAL %5sV", voltios);
     } else {
         snprintf(texto, sizeof(texto), "TOTAL SIN MEDIDA");
     }
     oled_print_line(1U, texto);
 
     if (BATTERY_Celda1Presente() != 0U) {
-        snprintf(texto, sizeof(texto), "CEL1  %5.2fV", (double)BATTERY_GetCelda1V());
+        char voltios[12];
+
+        FORMAT_Float(voltios, sizeof(voltios), BATTERY_GetCelda1V(), 2U);
+        snprintf(texto, sizeof(texto), "CEL1  %5sV", voltios);
         oled_print_line(2U, texto);
 
-        snprintf(texto, sizeof(texto), "CEL2  %5.2fV", (double)BATTERY_GetCelda2V());
+        FORMAT_Float(voltios, sizeof(voltios), BATTERY_GetCelda2V(), 2U);
+        snprintf(texto, sizeof(texto), "CEL2  %5sV", voltios);
         oled_print_line(3U, texto);
     } else {
+        char factor[12];
+
         oled_print_line(2U, "CEL1  SIN DIVISOR");
 
-        snprintf(texto, sizeof(texto), "K     %.4f", (double)BATTERY_GetKDivisor());
+        FORMAT_Float(factor, sizeof(factor), BATTERY_GetKDivisor(), 4U);
+        snprintf(texto, sizeof(texto), "K     %s", factor);
         oled_print_line(3U, texto);
     }
 
@@ -2831,9 +2974,19 @@ static void ir_cal_estimar_vivo(const uint16_t tabla[][IR_CAL_PUNTOS])
 
     OLED_Clear();
     oled_print_line(0, "DISTANCIA EN CM");
-    snprintf(linea, sizeof(linea), "A1 %4.1f  A2 %4.1f", (double)cm[0], (double)cm[1]);
+    char a1[10];
+    char a2[10];
+    char a3[10];
+    char a4[10];
+
+    FORMAT_Float(a1, sizeof(a1), cm[0], 1U);
+    FORMAT_Float(a2, sizeof(a2), cm[1], 1U);
+    FORMAT_Float(a3, sizeof(a3), cm[2], 1U);
+    FORMAT_Float(a4, sizeof(a4), cm[3], 1U);
+
+    snprintf(linea, sizeof(linea), "A1 %s  A2 %s", a1, a2);
     oled_print_line(1, linea);
-    snprintf(linea, sizeof(linea), "A3 %4.1f  A4 %4.1f", (double)cm[2], (double)cm[3]);
+    snprintf(linea, sizeof(linea), "A3 %s  A4 %s", a3, a4);
     oled_print_line(2, linea);
     oled_print_line(3, "MENU SALIR");
     OLED_Update();
@@ -2975,16 +3128,28 @@ void App_Test_CalibracionIR(void)
  * **error de régimen del 0,5 %** (298,5 mm/s de mediana) y un asentamiento de 0,6 s.
  *
  * @note `Kd = 0` **a propósito**: la planta es de primer orden (no hay inercia dominante que amortiguar)
- *       y el derivativo solo amplificaría el ruido de cuantificación del encoder, que es de ~7 mm/s.
+ *       y el derivativo solo amplificaría el ruido de cuantificación del encoder, que es de
+ *       **14,3 mm/s** (una cuenta de 287 µm dividida por la ventana del filtro; medido el 11-oct).
  * @note El pico de ~490 mm/s que se ve en el modo escalón es **el escalón**, no el lazo: `P + I` piden
  *       40 % de duty de golpe. En uso real la consigna lleva la rampa de `SP_PENDIENTE_DEF_MM_S2`
  *       (600 mm/s²), que es la que usan las primitivas de `app/motion.c`.
  */
 #define PID_TEST_VEL_MM_S_DEF  300.0f
 #define PID_TEST_RAMPA_MM_S2   600.0f
-#define PID_TEST_KP_DEF        0.10f
-#define PID_TEST_KI_DEF        0.50f
-#define PID_TEST_KD_DEF        0.00f
+
+/** @brief Número de ruedas con ganancias propias: izquierda y derecha (índice como `App_Rueda_t`). */
+#define PID_TEST_RUEDAS        2U
+
+/**
+ * @brief Ganancias de arranque, **una por rueda** (índice 0 = izquierda, 1 = derecha).
+ *
+ * El juego común de partida para las dos; el valor de cada rueda se ajusta **midiendo**: `PID KP 0.10
+ * DER`, y cuando la respuesta de esa rueda es la buena, se copia aquí para que el robot arranque
+ * sintonizado sin depender de la consola (que vive en RAM y se pierde al apagar).
+ */
+#define PID_TEST_KP_DEF        { 0.10f, 0.10f }
+#define PID_TEST_KI_DEF        { 0.50f, 0.50f }
+#define PID_TEST_KD_DEF        { 0.00f, 0.00f }
 #define PID_TEST_DUTY_MAX      60.0f
 
 /**
@@ -3014,15 +3179,39 @@ void App_Test_CalibracionIR(void)
  * solo la pantalla.
  */
 typedef enum {
-    PID_TEST_AJUSTE_KP = 0,
-    PID_TEST_AJUSTE_KI,
-    PID_TEST_AJUSTE_KD,
+    PID_TEST_AJUSTE_KP_IZQ = 0,
+    PID_TEST_AJUSTE_KP_DER,
+    PID_TEST_AJUSTE_KI_IZQ,
+    PID_TEST_AJUSTE_KI_DER,
+    PID_TEST_AJUSTE_KD_IZQ,
+    PID_TEST_AJUSTE_KD_DER,
     PID_TEST_AJUSTE_VEL,
     PID_TEST_AJUSTE_N
 } PidTestAjuste_t;
 
-/** @brief Cuánto cambia cada pulsación de UP/DOWN en cada parámetro. */
-static const float pid_test_ajuste_paso[PID_TEST_AJUSTE_N] = { 0.05f, 0.05f, 0.05f, 25.0f };
+/**
+ * @brief Qué toca cada posición del recorrido de **OK**, y a qué rueda.
+ *
+ * Cada ganancia aparece **una vez por rueda**: con ganancias por rueda, `KP` a secas ya no identifica
+ * nada que se pueda mover. `APP_PID_GANANCIA_N` significa «la consigna»: no es una ganancia y se
+ * aplica a las dos ruedas a la vez.
+ */
+typedef struct {
+    App_PidGanancia_t ganancia;
+    App_Rueda_t       rueda;
+    const char       *nombre;
+    float             paso;
+} PidTestAjusteFila_t;
+
+static const PidTestAjusteFila_t pid_test_ajuste[PID_TEST_AJUSTE_N] = {
+    { APP_PID_GANANCIA_KP, APP_RUEDA_IZQ, "KP I",  0.05f },   /* paso de UP/DOWN */
+    { APP_PID_GANANCIA_KP, APP_RUEDA_DER, "KP D",  0.05f },
+    { APP_PID_GANANCIA_KI, APP_RUEDA_IZQ, "KI I",  0.05f },
+    { APP_PID_GANANCIA_KI, APP_RUEDA_DER, "KI D",  0.05f },
+    { APP_PID_GANANCIA_KD, APP_RUEDA_IZQ, "KD I",  0.05f },
+    { APP_PID_GANANCIA_KD, APP_RUEDA_DER, "KD D",  0.05f },
+    { APP_PID_GANANCIA_N,  APP_RUEDA_IZQ, "VEL",  25.00f },   /* la consigna, no una ganancia */
+};
 
 /**
  * @brief Estado del barrido automático de `Kp` (modo 3).
@@ -3160,43 +3349,60 @@ static float pid_test_osc_tu(const PidTestOsc_t *osc)
     return (float)(osc->t_ultimo - osc->t_primero) / ((float)osc->cruces * 1000.0f);
 }
 
-/* Ganancia y consigna en uso (ver la nota de aplicación arriba). */
-static float   pid_test_kp        = PID_TEST_KP_DEF;
-static float   pid_test_ki        = PID_TEST_KI_DEF;
-static float   pid_test_kd        = PID_TEST_KD_DEF;
-static float   pid_test_vel_mm_s  = PID_TEST_VEL_MM_S_DEF;
-static uint8_t pid_test_pendiente = 0U;   /* 1 = la consola ha cambiado algo: reaplicar al lazo */
+/* Ganancia y consigna en uso (ver la nota de aplicación arriba). Las ganancias van **por rueda**:
+   índice 0 = izquierda, 1 = derecha, los mismos valores que `App_Rueda_t`. */
+static float   pid_test_kp[PID_TEST_RUEDAS] = PID_TEST_KP_DEF;
+static float   pid_test_ki[PID_TEST_RUEDAS] = PID_TEST_KI_DEF;
+static float   pid_test_kd[PID_TEST_RUEDAS] = PID_TEST_KD_DEF;
+static float   pid_test_vel_mm_s            = PID_TEST_VEL_MM_S_DEF;
+static uint8_t pid_test_pendiente           = 0U;  /* 1 = hay un ajuste sin aplicar al lazo */
 
 /**
  * @brief Cambia una ganancia del lazo de velocidad (orden `PID` de la consola).
  *
  * @param cual Ganancia a cambiar
+ * @param rueda Rueda a la que se aplica; `APP_RUEDA_AMBAS` escribe en las dos
  * @param valor Valor nuevo
  * @return 1 si se aceptó, 0 si está fuera de rango
  * @note La comprobación `!(valor >= 0.0f)` descarta también los negativos y el `NaN` de un texto
  *       mal formado, sin necesidad de comparar contra sí mismo.
  */
-uint8_t APP_PID_SetGanancia(App_PidGanancia_t cual, float valor)
+uint8_t APP_PID_SetGanancia(App_PidGanancia_t cual, App_Rueda_t rueda, float valor)
 {
-    if (!(valor >= 0.0f)) {
+    float  *destino[PID_TEST_RUEDAS];
+    uint8_t i;
+
+    if (!(valor >= 0.0f) || (rueda >= APP_RUEDA_N)) {
         return 0U;
     }
 
     switch (cual) {
     case APP_PID_GANANCIA_KP:
         if (valor > PID_TEST_KP_MAX) { return 0U; }
-        pid_test_kp = valor;
+        destino[0] = &pid_test_kp[0];
+        destino[1] = &pid_test_kp[1];
         break;
     case APP_PID_GANANCIA_KI:
         if (valor > PID_TEST_KI_MAX) { return 0U; }
-        pid_test_ki = valor;
+        destino[0] = &pid_test_ki[0];
+        destino[1] = &pid_test_ki[1];
         break;
     case APP_PID_GANANCIA_KD:
         if (valor > PID_TEST_KD_MAX) { return 0U; }
-        pid_test_kd = valor;
+        destino[0] = &pid_test_kd[0];
+        destino[1] = &pid_test_kd[1];
         break;
     default:
         return 0U;
+    }
+
+    /* Sin rueda (`AMBAS`) se escriben las dos, que es lo que se espera de un `PID KP 0.3` a secas. */
+    if (rueda == APP_RUEDA_AMBAS) {
+        for (i = 0U; i < PID_TEST_RUEDAS; i++) {
+            *destino[i] = valor;
+        }
+    } else {
+        *destino[(uint8_t)rueda] = valor;
     }
 
     pid_test_pendiente = 1U;
@@ -3223,20 +3429,43 @@ uint8_t APP_PID_SetVelocidad(float mm_s)
 }
 
 /**
- * @brief Ganancia en uso (la que aplicará la prueba 18).
+ * @brief Ganancia en uso (la que aplicará la prueba 18) para una rueda concreta.
  */
-float APP_PID_GetGanancia(App_PidGanancia_t cual)
+float APP_PID_GetGanancia(App_PidGanancia_t cual, App_Rueda_t rueda)
 {
+    uint8_t i = (uint8_t)((rueda == APP_RUEDA_DER) ? APP_RUEDA_DER : APP_RUEDA_IZQ);
+
     switch (cual) {
-    case APP_PID_GANANCIA_KP: return pid_test_kp;
-    case APP_PID_GANANCIA_KI: return pid_test_ki;
-    case APP_PID_GANANCIA_KD: return pid_test_kd;
+    case APP_PID_GANANCIA_KP: return pid_test_kp[i];
+    case APP_PID_GANANCIA_KI: return pid_test_ki[i];
+    case APP_PID_GANANCIA_KD: return pid_test_kd[i];
     default:                  return 0.0f;
     }
 }
 
 /** @brief Consigna de velocidad en uso [mm/s]. */
 float APP_PID_GetVelocidad(void) { return pid_test_vel_mm_s; }
+
+/**
+ * @brief Prepara las primitivas de movimiento con las ganancias que estén en uso.
+ *
+ * Las primitivas y el banco **comparten** ganancias: se sintoniza una vez (prueba 18) y la misión usa
+ * eso mismo, para que no haya dos sintonías distintas. Con las ganancias por rueda, cada lazo de
+ * `Motion_t` recibe las suyas.
+ *
+ * @param m Estructura de las primitivas a preparar
+ */
+static void app_motion_iniciar(Motion_t *m)
+{
+    MOTION_Init(m, &motor1, &motor2);
+    MOTION_SetGanancias(m,
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_IZQ),
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KI, APP_RUEDA_IZQ),
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KD, APP_RUEDA_IZQ),
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_DER),
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KI, APP_RUEDA_DER),
+                        APP_PID_GetGanancia(APP_PID_GANANCIA_KD, APP_RUEDA_DER));
+}
 
 /**
  * @brief Publica por telemetría la configuración del lazo.
@@ -3248,9 +3477,12 @@ static void pid_test_publicar_config(void)
 {
     TELEM_SendInt("PID_MODO", PID_TEST_MODO);
     TELEM_SendFloat("PID_VEL_OBJ", pid_test_vel_mm_s);
-    TELEM_SendFloat("PID_KP", pid_test_kp);
-    TELEM_SendFloat("PID_KI", pid_test_ki);
-    TELEM_SendFloat("PID_KD", pid_test_kd);
+    TELEM_SendFloat("PID_KP_I", pid_test_kp[APP_RUEDA_IZQ]);
+    TELEM_SendFloat("PID_KP_D", pid_test_kp[APP_RUEDA_DER]);
+    TELEM_SendFloat("PID_KI_I", pid_test_ki[APP_RUEDA_IZQ]);
+    TELEM_SendFloat("PID_KI_D", pid_test_ki[APP_RUEDA_DER]);
+    TELEM_SendFloat("PID_KD_I", pid_test_kd[APP_RUEDA_IZQ]);
+    TELEM_SendFloat("PID_KD_D", pid_test_kd[APP_RUEDA_DER]);
 }
 
 /**
@@ -3261,8 +3493,10 @@ static void pid_test_publicar_config(void)
  */
 static void pid_test_iniciar(Controller_t *izq, Controller_t *der)
 {
-    CTRL_Init(izq, pid_test_kp, pid_test_ki, pid_test_kd, PID_TEST_DUTY_MAX);
-    CTRL_Init(der, pid_test_kp, pid_test_ki, pid_test_kd, PID_TEST_DUTY_MAX);
+    CTRL_Init(izq, pid_test_kp[APP_RUEDA_IZQ], pid_test_ki[APP_RUEDA_IZQ],
+              pid_test_kd[APP_RUEDA_IZQ], PID_TEST_DUTY_MAX);
+    CTRL_Init(der, pid_test_kp[APP_RUEDA_DER], pid_test_ki[APP_RUEDA_DER],
+              pid_test_kd[APP_RUEDA_DER], PID_TEST_DUTY_MAX);
     CTRL_SetRampa(izq, PID_TEST_RAMPA_MM_S2);
     CTRL_SetRampa(der, PID_TEST_RAMPA_MM_S2);
 
@@ -3300,8 +3534,10 @@ static void pid_test_aplicar_cambios(Controller_t *izq, Controller_t *der)
 
     pid_test_pendiente = 0U;
 
-    CTRL_SetGanancias(izq, pid_test_kp, pid_test_ki, pid_test_kd);
-    CTRL_SetGanancias(der, pid_test_kp, pid_test_ki, pid_test_kd);
+    CTRL_SetGanancias(izq, pid_test_kp[APP_RUEDA_IZQ], pid_test_ki[APP_RUEDA_IZQ],
+                      pid_test_kd[APP_RUEDA_IZQ]);
+    CTRL_SetGanancias(der, pid_test_kp[APP_RUEDA_DER], pid_test_ki[APP_RUEDA_DER],
+                      pid_test_kd[APP_RUEDA_DER]);
 
     /* En el modo escalón la consigna la lleva el escalón: no se toca desde aquí. */
     if (PID_TEST_MODO != 1) {
@@ -3368,27 +3604,16 @@ static void pid_test_enviar_telemetria(const Controller_t *izq, const Controller
  */
 static void pid_test_ajustar(PidTestAjuste_t cual, int8_t pasos)
 {
-    float delta = pid_test_ajuste_paso[cual] * (float)pasos;
+    const PidTestAjusteFila_t *fila  = &pid_test_ajuste[cual];
+    float                      delta = fila->paso * (float)pasos;
 
-    switch (cual) {
-    case PID_TEST_AJUSTE_KP:
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KP,
-                            APP_PID_GetGanancia(APP_PID_GANANCIA_KP) + delta);
-        break;
-    case PID_TEST_AJUSTE_KI:
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KI,
-                            APP_PID_GetGanancia(APP_PID_GANANCIA_KI) + delta);
-        break;
-    case PID_TEST_AJUSTE_KD:
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KD,
-                            APP_PID_GetGanancia(APP_PID_GANANCIA_KD) + delta);
-        break;
-    case PID_TEST_AJUSTE_VEL:
+    if (fila->ganancia == APP_PID_GANANCIA_N) {
         APP_PID_SetVelocidad(APP_PID_GetVelocidad() + delta);
-        break;
-    default:
-        break;
+        return;
     }
+
+    APP_PID_SetGanancia(fila->ganancia, fila->rueda,
+                        APP_PID_GetGanancia(fila->ganancia, fila->rueda) + delta);
 }
 
 /**
@@ -3407,33 +3632,30 @@ static void pid_test_ajustar(PidTestAjuste_t cual, int8_t pasos)
  */
 static void app_pantalla_pid(const Controller_t *izq, const Controller_t *der, PidTestAjuste_t ajuste)
 {
+    const PidTestAjusteFila_t *fila = &pid_test_ajuste[ajuste];
     char texto[24];
-    char otras[24];
-
-    switch (ajuste) {
-    case PID_TEST_AJUSTE_KI:
-        snprintf(texto, sizeof(texto), "PID >KI %.2f", (double)pid_test_ki);
-        snprintf(otras, sizeof(otras), "KP %.2f KD %.2f", (double)pid_test_kp, (double)pid_test_kd);
-        break;
-    case PID_TEST_AJUSTE_KD:
-        snprintf(texto, sizeof(texto), "PID >KD %.2f", (double)pid_test_kd);
-        snprintf(otras, sizeof(otras), "KP %.2f KI %.2f", (double)pid_test_kp, (double)pid_test_ki);
-        break;
-    case PID_TEST_AJUSTE_VEL:
-        snprintf(texto, sizeof(texto), "PID >VEL %d", (int)APP_PID_GetVelocidad());
-        snprintf(otras, sizeof(otras), "KP %.2f KI %.2f", (double)pid_test_kp, (double)pid_test_ki);
-        break;
-    case PID_TEST_AJUSTE_KP:
-    default:
-        snprintf(texto, sizeof(texto), "PID >KP %.2f", (double)pid_test_kp);
-        snprintf(otras, sizeof(otras), "KI %.2f KD %.2f", (double)pid_test_ki, (double)pid_test_kd);
-        break;
-    }
+    char g1[12];
+    char g2[12];
 
     OLED_Clear();
 
+    /* El parámetro marcado se enseña con **las dos ruedas a la vista**: al sintonizar por rueda lo que
+       se mira es la diferencia entre las dos, no el valor de la que se está moviendo. */
+    if (fila->ganancia == APP_PID_GANANCIA_N) {
+        snprintf(texto, sizeof(texto), "PID >VEL %d", (int)APP_PID_GetVelocidad());
+    } else {
+        FORMAT_Float(g1, sizeof(g1), APP_PID_GetGanancia(fila->ganancia, APP_RUEDA_IZQ), 2U);
+        FORMAT_Float(g2, sizeof(g2), APP_PID_GetGanancia(fila->ganancia, APP_RUEDA_DER), 2U);
+        snprintf(texto, sizeof(texto), "PID >%s %s %s", fila->nombre, g1, g2);
+    }
     oled_print_line(0U, texto);
-    oled_print_line(1U, otras);
+
+    /* Las otras dos ganancias de la **misma rueda**: son las que hay que mirar juntas al ajustar una. */
+    FORMAT_Float(g1, sizeof(g1), APP_PID_GetGanancia(APP_PID_GANANCIA_KI, fila->rueda), 2U);
+    FORMAT_Float(g2, sizeof(g2), APP_PID_GetGanancia(APP_PID_GANANCIA_KD, fila->rueda), 2U);
+    snprintf(texto, sizeof(texto), "%s KI %s KD %s",
+             (fila->rueda == APP_RUEDA_DER) ? "D" : "I", g1, g2);
+    oled_print_line(1U, texto);
 
     snprintf(texto, sizeof(texto), "IZQ %d DER %d",
              (int)CTRL_GetMedida(izq), (int)CTRL_GetMedida(der));
@@ -3466,14 +3688,26 @@ static void app_pantalla_pid_auto(const Controller_t *izq, const Controller_t *d
     OLED_Clear();
 
     if (pausa != 0U) {
-        snprintf(texto, sizeof(texto), "PAUSA KP %.2f", (double)pid_test_kp);
+        char g1[12];
+
+        FORMAT_Float(g1, sizeof(g1), pid_test_kp[APP_RUEDA_IZQ], 2U);
+        snprintf(texto, sizeof(texto), "PAUSA KP %s", g1);
     } else if (estado == PID_AUTO_ENCONTRADO) {
-        snprintf(texto, sizeof(texto), "KU %.2f TU %.2f", (double)ku, (double)tu);
+        char s_ku[12];
+        char s_tu[12];
+
+        FORMAT_Float(s_ku, sizeof(s_ku), ku, 2U);
+        FORMAT_Float(s_tu, sizeof(s_tu), tu, 2U);
+        snprintf(texto, sizeof(texto), "KU %s TU %s", s_ku, s_tu);
     } else if (estado == PID_AUTO_AGOTADO) {
         snprintf(texto, sizeof(texto), "SIN OSCILAR");
     } else {
-        snprintf(texto, sizeof(texto), "AUTO KP %.2f",
-                 (double)APP_PID_GetGanancia(APP_PID_GANANCIA_KP));
+        char g1[12];
+
+        /* El barrido escribe `Kp` en las **dos** ruedas (`APP_RUEDA_AMBAS`) para que oscilen igual, así
+           que aquí basta con leer una. */
+        FORMAT_Float(g1, sizeof(g1), APP_PID_GetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_IZQ), 2U);
+        snprintf(texto, sizeof(texto), "AUTO KP %s", g1);
     }
     oled_print_line(0U, texto);
 
@@ -3514,7 +3748,7 @@ void App_Test_PID(void)
 {
     Controller_t      lazo_izq;
     Controller_t      lazo_der;
-    PidTestAjuste_t   ajuste        = PID_TEST_AJUSTE_KP;
+    PidTestAjuste_t   ajuste        = PID_TEST_AJUSTE_KP_IZQ;
     PidTestOsc_t      osc           = { 0U, 0U, 0U, 0U, 0U };
     PidTestAmplitud_t amp           = { 0.0f, 0.0f, 0U };
     PidAutoEstado_t   auto_estado   = PID_AUTO_BUSCANDO;
@@ -3523,6 +3757,7 @@ void App_Test_PID(void)
     uint8_t           auto_pausa    = 0U;
     uint32_t          t_ultimo_paso = HAL_GetTick();
     uint32_t          t_ultimo_log  = HAL_GetTick();
+    uint16_t          t_lazo        = TIM_Cuentas();   /* se cierra al final de cada vuelta */
     uint32_t          t_escalon     = HAL_GetTick();
     uint32_t          t_auto        = HAL_GetTick();
     uint32_t          t_pantalla    = HAL_GetTick();
@@ -3534,9 +3769,9 @@ void App_Test_PID(void)
         /* Ziegler-Nichols se hace **solo con la P**. El integrador viene puesto a 0,60 de fábrica y con
            él el lazo oscila por su cuenta desde el primer `Kp`: la amplitud sale alta siempre y el
            barrido se declara terminado en el primer escalón con un `Ku` falso. */
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KI, 0.0f);
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KD, 0.0f);
-        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, PID_AUTO_KP_INI);
+        APP_PID_SetGanancia(APP_PID_GANANCIA_KI, APP_RUEDA_AMBAS, 0.0f);
+        APP_PID_SetGanancia(APP_PID_GANANCIA_KD, APP_RUEDA_AMBAS, 0.0f);
+        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_AMBAS, PID_AUTO_KP_INI);
     }
 
     pid_test_iniciar(&lazo_izq, &lazo_der);
@@ -3551,7 +3786,9 @@ void App_Test_PID(void)
         uint32_t ahora = HAL_GetTick();
         uint8_t  evento;
 
-        update_encoder_readings();
+        /* Los encoders ya los muestrea la interrupción de control (`app/control_loop.c`), a 1 kHz
+           fijo: la ventana del filtro son 20 ms aquí y en la misión, que es lo que hace que lo que
+           se sintonice aquí valga allí. */
 
         /* La consola hay que atenderla AQUÍ: esta prueba es bloqueante y, sin esta llamada, las
            órdenes `PID KP …` no se leerían hasta salir al menú, que es justo cuando ya no sirven. */
@@ -3622,7 +3859,7 @@ void App_Test_PID(void)
 
                     if (auto_alta >= PID_AUTO_CONFIRMACIONES) {
                         auto_estado = PID_AUTO_ENCONTRADO;
-                        auto_ku     = pid_test_kp;
+                        auto_ku     = pid_test_kp[APP_RUEDA_IZQ];
 
                         TELEM_SendFloat("PID_KU", auto_ku);
                         TELEM_SendFloat("PID_TU", pid_test_osc_tu(&osc));
@@ -3630,13 +3867,14 @@ void App_Test_PID(void)
 
                         /* Se deja puesta la `Kp` que Ziegler-Nichols pide para el lazo afinado, para no
                            tener que teclear nada antes de empezar a ajustar. */
-                        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, 0.6f * auto_ku);
+                        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_AMBAS, 0.6f * auto_ku);
                     }
                 } else {
                     auto_alta = 0U;
 
-                    if (pid_test_kp < PID_AUTO_KP_MAX) {
-                        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, pid_test_kp + PID_AUTO_KP_PASO);
+                    if (pid_test_kp[APP_RUEDA_IZQ] < PID_AUTO_KP_MAX) {
+                        APP_PID_SetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_AMBAS,
+                                            pid_test_kp[APP_RUEDA_IZQ] + PID_AUTO_KP_PASO);
                     } else {
                         auto_estado = PID_AUTO_AGOTADO;
                         TELEM_SendInt("PID_AUTO", (int32_t)auto_estado);
@@ -3650,6 +3888,7 @@ void App_Test_PID(void)
 
         if ((auto_pausa != 0U) && (PID_TEST_MODO == 3)) {
             HAL_Delay(PID_TEST_LAZO_MS);
+            t_lazo = TIM_Cuentas();   /* en pausa no hay lazo que medir: se reinicia el cronómetro */
             continue;   /* en pausa no se mueve nada: solo se atienden los botones */
         }
 
@@ -3692,6 +3931,12 @@ void App_Test_PID(void)
                 app_pantalla_pid(&lazo_izq, &lazo_der, ajuste);
             }
         }
+
+        /* El cronómetro se cierra al final de la vuelta, contando también la pantalla y la
+           telemetría: es exactamente lo que se quiere medir, porque son las dos cosas que bloquean
+           dentro del lazo. */
+        TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
+        t_lazo = TIM_Cuentas();
 
         HAL_Delay(1);
     }
@@ -3812,7 +4057,6 @@ void App_Test_Odometria(void)
     uint8_t    congelado = 0U;
 
     ODOM_Init(&odo, 0.0f, 0.0f, 0.0f);
-    update_encoder_readings();
     um_izq_previo = get_encoder_left_micrometers();
     um_der_previo = get_encoder_right_micrometers();
     t_telemetria  = HAL_GetTick();
@@ -3827,7 +4071,6 @@ void App_Test_Odometria(void)
         uint8_t  evento;
         uint32_t ahora;
 
-        update_encoder_readings();
         um_izq = get_encoder_left_micrometers();
         um_der = get_encoder_right_micrometers();
 
@@ -4088,10 +4331,7 @@ void App_Test_Movimiento(void)
     float    teorico_mm  = 0.0f;
     float    teorico_ang = 0.0f;
 
-    MOTION_Init(&m, &motor1, &motor2,
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KP),
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KI),
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KD));
+    app_motion_iniciar(&m);
 
     /* A partir de aquí la consola puede mandar movimientos, y hasta aquí no: entrar en la prueba no
        debe ejecutar una orden que se quedara escrita antes. */
@@ -4235,10 +4475,7 @@ void App_Test_WallFollower(void)
     WF_Mano_t mano   = WF_MANO_DERECHA;
     uint8_t   marcha = 0U;
 
-    MOTION_Init(&m, &motor1, &motor2,
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KP),
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KI),
-                APP_PID_GetGanancia(APP_PID_GANANCIA_KD));
+    app_motion_iniciar(&m);
 
     WF_Init(&m, mano);
 

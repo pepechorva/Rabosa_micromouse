@@ -1,8 +1,10 @@
 #include "app/console.h"
 #include "app/application.h"
+#include "app/buttons.h"
 #include "app/motion.h"
 #include "app/telemetry.h"
 #include "app/trace.h"
+#include "hal/timers.h"
 #include "hal/uart.h"
 #include "sensor/battery.h"
 #include "pinout.h"
@@ -290,17 +292,21 @@ static void console_comando_bat(char *resto)
  */
 static void console_publicar_pid(void)
 {
-    TELEM_SendFloat("PID_KP", APP_PID_GetGanancia(APP_PID_GANANCIA_KP));
-    TELEM_SendFloat("PID_KI", APP_PID_GetGanancia(APP_PID_GANANCIA_KI));
-    TELEM_SendFloat("PID_KD", APP_PID_GetGanancia(APP_PID_GANANCIA_KD));
+    TELEM_SendFloat("PID_KP_I", APP_PID_GetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_IZQ));
+    TELEM_SendFloat("PID_KP_D", APP_PID_GetGanancia(APP_PID_GANANCIA_KP, APP_RUEDA_DER));
+    TELEM_SendFloat("PID_KI_I", APP_PID_GetGanancia(APP_PID_GANANCIA_KI, APP_RUEDA_IZQ));
+    TELEM_SendFloat("PID_KI_D", APP_PID_GetGanancia(APP_PID_GANANCIA_KI, APP_RUEDA_DER));
+    TELEM_SendFloat("PID_KD_I", APP_PID_GetGanancia(APP_PID_GANANCIA_KD, APP_RUEDA_IZQ));
+    TELEM_SendFloat("PID_KD_D", APP_PID_GetGanancia(APP_PID_GANANCIA_KD, APP_RUEDA_DER));
     TELEM_SendFloat("PID_VEL", APP_PID_GetVelocidad());
 }
 
 /**
  * @brief Orden `PID`: sintoniza el lazo de velocidad sin recompilar.
  *
- * Formas: `PID` o `PID LIST` (publica), `PID KP|KI|KD <valor>` y `PID VEL <mm/s>`. El valor se
- * comprueba en la APP, que es la dueña de los ajustes; aquí solo se avisa del rechazo.
+ * Formas: `PID` o `PID LIST` (publica), `PID KP|KI|KD <valor> [IZQ|DER]` y `PID VEL <mm/s>`. Sin
+ * rueda, el valor va a **las dos**; con `IZQ` o `DER`, solo a esa. El valor se comprueba en la APP,
+ * que es la dueña de los ajustes; aquí solo se avisa del rechazo.
  *
  * @param resto Lo que queda de la orden tras la palabra `PID`
  */
@@ -308,8 +314,10 @@ static void console_comando_pid(char *resto)
 {
     char             *token    = console_token(&resto);
     char             *valor_tx = NULL;
+    char             *rueda_tx = NULL;
     float             valor    = 0.0f;
     App_PidGanancia_t cual     = APP_PID_GANANCIA_N;
+    App_Rueda_t       rueda    = APP_RUEDA_AMBAS;
     uint8_t           es_vel   = 0U;
 
     if (token == NULL) {
@@ -344,8 +352,27 @@ static void console_comando_pid(char *resto)
         return;
     }
 
+    /* Tercer token, opcional: a qué rueda. Es lo que hace posible ajustar **una sola** rueda, que es
+       de lo que va tener ganancias por rueda. */
+    rueda_tx = console_token(&resto);
+
+    if (rueda_tx != NULL) {
+        console_mayusculas(rueda_tx);
+
+        if (strcmp(rueda_tx, "IZQ") == 0) {
+            rueda = APP_RUEDA_IZQ;
+        } else if (strcmp(rueda_tx, "DER") == 0) {
+            rueda = APP_RUEDA_DER;
+        } else if (strcmp(rueda_tx, "AMBAS") == 0) {
+            rueda = APP_RUEDA_AMBAS;
+        } else {
+            TELEM_SendInt("CMD_ERR", 1);   /* 1 = rueda desconocida */
+            return;
+        }
+    }
+
     if (((es_vel != 0U) && (APP_PID_SetVelocidad(valor) == 0U)) ||
-        ((es_vel == 0U) && (APP_PID_SetGanancia(cual, valor) == 0U))) {
+        ((es_vel == 0U) && (APP_PID_SetGanancia(cual, rueda, valor) == 0U))) {
         TELEM_SendInt("CMD_ERR", 3);   /* 3 = rechazado (fuera de rango) */
         return;
     }
@@ -590,6 +617,63 @@ static void console_comando_gyro(char *resto)
 }
 
 /* ------------------------------------------------------------------ */
+/**
+ * @brief Lanza una prueba del banco por su nombre (orden `TEST <etiqueta>`).
+ *
+ * Es lo que permite **guionizar el banco desde el PC**: lanzar una prueba, leer su respuesta por el
+ * puente y salir con `SALIR`, sin tocar los botones del robot. Con eso, sintonizar cada rueda por
+ * separado deja de ser una sesión de dedos y pasa a ser un guion.
+ *
+ * @param resto Etiqueta de la prueba, tal como aparece en el menú (`SINTONIA`, `MOVIMIENTO`…)
+ * @note La orden la **concede** la APP (`APP_Test_Pedir()`), que es quien puede cambiar el estado de
+ *       la máquina; la consola solo deja la petición. Es el mismo reparto que la orden `MOV`.
+ * @warning Lanzar una prueba **puede arrancar motores**. Desde el PC no se ve el robot.
+ */
+static void console_comando_test(char *resto)
+{
+    char *token = console_token(&resto);
+
+    if (token == NULL) {
+        TELEM_SendInt("CMD_ERR", 2);   /* 2 = falta el parámetro */
+        return;
+    }
+
+    console_mayusculas(token);
+
+    if (APP_Test_Pedir(token) == 0U) {
+        /* 3 = rechazado: o no existe esa prueba, o no se está en el menú (desde dentro de una prueba
+           no se salta a otra: primero hay que salir). */
+        TELEM_SendInt("CMD_ERR", 3);
+        return;
+    }
+
+    TELEM_SendInt("CMD_TEST", 1);
+}
+
+/* ------------------------------------------------------------------ */
+/**
+ * @brief Publica los tiempos medidos y reinicia los máximos (orden `LAZO`).
+ *
+ * Todo en microsegundos. `_US` es el último tramo cerrado y `_MAX` el peor desde el último reset, que
+ * es el número que importa: un máximo de 10 000 en `LAZO_MAX` quiere decir que una vuelta del lazo
+ * llegó a tardar 10 ms, y con `MOTION_PASO_MS` = 10 eso es la vuelta entera.
+ *
+ * @note Se publica **antes** de reiniciar: el propio volcado son seis líneas de telemetría (~9 ms
+ *       de bus), y si se reiniciara antes quedaría contado como un tramo lento.
+ */
+static void console_publicar_lazo(void)
+{
+    TELEM_SendInt("LAZO_US",  (int32_t)TIM_GetUltimo(TIM_TRAMO_LAZO));
+    TELEM_SendInt("LAZO_MAX", (int32_t)TIM_GetMaximo(TIM_TRAMO_LAZO));
+    TELEM_SendInt("OLED_US",  (int32_t)TIM_GetUltimo(TIM_TRAMO_OLED));
+    TELEM_SendInt("OLED_MAX", (int32_t)TIM_GetMaximo(TIM_TRAMO_OLED));
+    TELEM_SendInt("UART_US",  (int32_t)TIM_GetUltimo(TIM_TRAMO_UART));
+    TELEM_SendInt("UART_MAX", (int32_t)TIM_GetMaximo(TIM_TRAMO_UART));
+
+    TIM_ResetMaximos();
+}
+
+/* ------------------------------------------------------------------ */
 static void console_ejecutar(char *orden)
 {
     char *token = console_token(&orden);
@@ -624,6 +708,26 @@ static void console_ejecutar(char *orden)
        volcarla mientras el robot está en el suelo y sin cable. */
     if (strcmp(token, "TRACE") == 0) {
         TRACE_Descargar();
+        return;
+    }
+
+    /* Los tiempos del lazo también se piden, y no se publican solos: medir el lazo no puede costar
+       telemetría **dentro** del lazo, que sería justo el retardo que se está midiendo. */
+    if (strcmp(token, "LAZO") == 0) {
+        console_publicar_lazo();
+        return;
+    }
+
+    /* Lanzar una prueba del banco sin tocar el robot. */
+    if (strcmp(token, "TEST") == 0) {
+        console_comando_test(orden);
+        return;
+    }
+
+    /* Salir de la prueba en curso, igual que el botón MENU: se marca su interrupción. */
+    if ((strcmp(token, "SALIR") == 0) || (strcmp(token, "MENU") == 0)) {
+        BUTTONS_SolicitarSalida();
+        TELEM_SendInt("CMD_SALIR", 1);
         return;
     }
 

@@ -14,11 +14,11 @@
  *   - 4 líneas de texto a escala 1 (8 px cada una)
  *   - 2 líneas a escala 2 (16 px cada una) ← lo que usa la prueba de botones
  *
- * ⚠️ Solo están definidos los glifos de la tabla de `oled.c`: el espacio, los dígitos 0-9 y las
- * letras A B C D E F G I K L M N O P R S T U V W X — o sea que **faltan H, J, Q, Y y Z**, además de
- * los acentos y la coma. Todo texto de pantalla se escribe sin ellas (y sin acentos). El `>` es el
- * cursor del menú. Cualquier otro carácter se dibuja en blanco: si hace falta otra letra, se añade a
- * esa tabla (5 bytes por glifo, y hay un typedef que comprueba que las dos tablas cuadran).
+ * ⚠️ Están definidos los glifos de la tabla de `oled.c`: el espacio, los dígitos 0-9 y las letras
+ * **A–Z al completo** (H, J, Q, Y y Z se añadieron el 2026-10-11). Faltan las **minúsculas**, los
+ * **acentos** y la **coma**, así que todo texto de pantalla va en mayúsculas y sin acentos. El `>`
+ * es el cursor del menú. Cualquier otro carácter se dibuja en blanco: si hace falta otro glifo, se
+ * añade a esa tabla (5 bytes por glifo, y hay un typedef que comprueba que las dos cuadran).
  */
 
 #define OLED_ANCHO   128

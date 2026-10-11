@@ -237,28 +237,25 @@ int32_t max_likelihood_counter_diff(uint16_t now, uint16_t before)
  * Debe llamarse a la frecuencia definida por SYSTICK_FREQUENCY_HZ
  * (típicamente 1000 Hz = cada 1 ms).
  */
-void update_encoder_readings(void)
+void update_encoder_readings(float dt)
 {
     static uint16_t last_left_count;
     static uint16_t last_right_count;
-    static uint32_t t_ultimo;
 
     uint16_t left_count;
     uint16_t right_count;
-    uint32_t ahora;
-    float    dt;
 
     float mic_per_count;
 
     left_count  = (uint16_t)__HAL_TIM_GET_COUNTER(&htim2);
     right_count = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
 
-    /* El `dt` se MIDE, no se supone: la velocidad tiene que salir bien tanto si esto se llama cada
-       milisegundo (el lazo) como si se llama cada diez (las primitivas de movimiento). */
-    ahora = HAL_GetTick();
-    dt    = (float)(ahora - t_ultimo) / 1000.0f;
-    t_ultimo = ahora;
-
+    /* ⚠️ El `dt` **entra por parámetro** desde el 2026-10-11, y no es un capricho de estilo: la
+       ventana de la media móvil es la **suma de los `dt`**, así que su duración depende del ritmo al
+       que se llame a esto. Midiéndolo por dentro, la misma función daba una ventana de ~38 ms en la
+       prueba 18 (bucle de 1,9 ms) y de **~200 ms en las primitivas de movimiento** (bucle de 10 ms)
+       ⇒ ~95 ms de retraso al regular, y sin que nada lo delatara. Ahora lo llena la interrupción de
+       TIM1 a 1 kHz fijo (`app/control_loop.c`) y la ventana son 20 ms siempre. */
     if (dt <= 0.0f) {
         dt = 1.0f / (float)SYSTICK_FREQUENCY_HZ;
     }

@@ -126,9 +126,14 @@ Protocolo completo: `Documentacion/comandos-serie.md`.
 1. Declara `void App_Test_XXX(void);` en `app/application.h`.
 2. Implementa la rutina en `app/application.c`, que **sale con MENU**: `while (!BUTTONS_SalidaSolicitada())`.
 3. Añade su fila **al bloque que le toque** de `application.c`, con `{ "ETIQUETA", MENU_TIPO_LANZAR, App_Test_XXX, 0U },`:
-   · `menu_test_analogico[]` (ADC, batería) · `menu_test_ir[]` · `menu_test_motores[]` · `menu_test_varios[]`.
-   ⚠️ La etiqueta se dibuja con la fuente de `oled.c`: **solo sus glifos** (ni `H` ni `J` ni `Q` ni `Y` ni `Z`)
-   y sin acentos.
+   · `menu_bateria[]` · `menu_ir[]` · `menu_motores[]` · `menu_telemetria[]` · `menu_exploracion[]` ·
+   `menu_resolucion[]` · `menu_ajustes[]` · `menu_diagnostico[]`.
+   ⚠️ Si la tabla es **nueva**, va también en `submenus[]` (una posición más) y el índice que le pases
+   a la fila del padre tiene que ser **el suyo**: ese array es un contrato y un índice mal puesto abre
+   **la tabla equivocada sin error de compilación**.
+   ⚠️ La etiqueta se dibuja con la fuente de `oled.c`: **tiene el alfabeto A–Z completo desde el
+   2026-10-11**, pero **ni minúsculas ni acentos**, y tiene que caber en **21 caracteres** con el
+   cursor `>` delante.
 4. Registra la fila en la tabla de la sección 2 y en `Documentacion/pruebas-bringup.md`.
 5. Ejecuta 10 veces y anota resultado (✅/❌) y `>WHO_AM_I`/valores medidos si aplica.
 
