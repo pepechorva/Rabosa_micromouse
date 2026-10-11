@@ -269,13 +269,19 @@ muestras, dos PID con `float` y cuatro escrituras de registro) debería quedarse
 
 1. **La etapa 2: meter el PID dentro de la interrupción.** Hoy la interrupción **muestrea** —y eso ya
    ha arreglado la ventana del filtro, que era el problema gordo— pero el PID sigue en el bucle
-   principal, a 10 ms. Ganancia **medida**: el retardo bajaría de ~15 a ~10,5 ms, un **30 %**, porque
-   el filtro ya se lleva 10 de los 15. ⚠️ Al hacerlo hay que **parar la interrupción antes de
-   frenar** (`LOOP_Desactivar()`): si no, el ISR reescribe el freno con un duty nuevo.
+   principal, a 10 ms. Ganancia **medida**: el retardo bajaría de ~15 a ~10,5 ms, un **30 %**.
+   ⚠️ **Pero medido el 2026-10-11, el límite de `Kp` depende del retardo y ese 30 % lo mueve poco**:
+   acortar la ventana para bajar el retardo tampoco sube el límite, porque la cuantización se come lo
+   que se gana. ⇒ **La etapa 2 deja de ser prioridad** (ver
+   [control-pid.md](./control-pid.md) §4). Cuando se haga, hacerlo bien: `LOOP_Desactivar()` antes de
+   frenar, porque si no el ISR reescribe el freno con un duty nuevo.
 2. **La UART sin bloqueo** (anillo de TX o DMA): deja de gastar ~8 ms cada 50 ms **del bucle
    principal**. Ya no afecta al control, pero sí a la odometría, al giroscopio y a los botones.
 3. **La I²C a 400 kHz** (`I2C1_CLOCK_HZ`): 52,8 ms → ~13 ms. Comodidad del banco.
-4. **El estimador** (método M/T o *feedforward* del modelo): es el suelo de 9,5 ms, y es lo único que
-   no arregla ninguna interrupción. Estudio aparte, con banco en el PC. La planta ya está **medida**
-   (unos 71 mm/s por punto de duty con un **escalón muerto de ~10 %**, ver
-   [control-pid.md](./control-pid.md) §4), que es la mitad del *feedforward*.
+4. **El estimador** (método M/T o *feedforward* del modelo): es lo único que **rompe el acoplamiento
+   resolución↔retardo** (da medida fina *y* ventana corta a la vez), y el experimento del 11-oct
+   demuestra que ese acoplamiento es real y que la ventana actual está cerca del óptimo. ⚠️ El premio
+   esperable en `Kp` es de un factor **~1,5-2**, no un cambio de escala ⇒ es una **mejora de segundo
+   orden**, no la respuesta a los errores que tiene el robot hoy (los giros de ±4-7°). Estudio aparte,
+   con banco en el PC; la planta ya está **medida** (unos 71 mm/s por punto de duty con un **escalón
+   muerto de ~10 %**, ver [control-pid.md](./control-pid.md) §4), que es la mitad del *feedforward*.

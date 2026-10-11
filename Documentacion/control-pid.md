@@ -141,6 +141,35 @@ lo único que el ISR quitó fue el retardo del lazo (de 10 a 0,5 ms). El retardo
 ~15 ms, solo **1,3×**, y el límite de `Kp` se mueve con él. **El premio del ISR no está en el banco,
 está en la misión**, donde ese mismo filtro pasaba de 200 a 20 ms (10×).
 
+#### Qué limita `Kp`: el retardo, no la resolución (2026-10-11)
+
+Se movió el tamaño de la **ventana del filtro**, que es la palanca que mueve **a la vez** el retardo y
+la cuantización, y en sentidos opuestos. Tres medidas, todas con `Kp = 0,20` y `Ki = 0` para forzar el
+límite:
+
+| Ventana | Retardo | Cuantización | σ(duty) | Picos | Resultado |
+|--:|--:|--:|--:|--:|:--|
+| 10 muestras | ~10 ms | 28,7 mm/s | 8 % | 516 | oscila |
+| **20 (la de diseño)** | **~15 ms** | **14,3 mm/s** | 28 % | 817 | oscila |
+| 40 muestras | ~25 ms | 7,2 mm/s | **51 %** | 1118 | se va a **428 mm/s** pidiendo 300, con duty medio **negativo** |
+
+⇒ **Con la medida 4× más fina el lazo va mucho peor: manda el retardo.** Pero **acortar tampoco
+arregla nada**, porque la cuantización se come lo que se gana: con `Kp = 0,10` (la buena) la σ de la
+velocidad **medida en cuentas** sale **la misma con ventana de 10 y de 20 (0,7 en las dos)** ⇒ el
+residuo es cuantización pura y el lazo está en el suelo de la medida.
+
+**Consecuencias, que cambian el plan de trabajo:**
+
+1. **El acoplamiento resolución↔retardo es real y 20 muestras está cerca del óptimo** (ni acortar ni
+   alargar sube el límite de `Kp`). Queda **medido**, no supuesto.
+2. **Meter el PID en la interrupción (etapa 2) baja el retardo solo un 30 %** (~15 → ~10,5 ms), y ese
+   factor mueve poco el límite de `Kp` ⇒ **deja de ser la prioridad**.
+3. **El estimador M/T seguiría valiendo**, pero por lo que **rompe el acoplamiento** (resolución fina
+   *y* ventana corta a la vez), con un premio esperable en `Kp` de **un factor ~1,5-2**, no un cambio
+   de escala. Es una mejora de **segundo orden**.
+4. Y por eso **`Kp = 0,10` no es una limitación a resolver**: el lazo ya da **0,15 % de error** con un
+   ruido por debajo de una cuenta de encoder. **El problema del robot no está aquí.**
+
 ### Ziegler-Nichols se descartó
 
 La velocidad de una rueda es un sistema de **primer orden**, y un lazo proporcional sobre un sistema de

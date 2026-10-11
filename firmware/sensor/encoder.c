@@ -36,6 +36,25 @@ static volatile float right_speed;
  *
  * @note Se promedian **cuentas y tiempo**, no velocidades ya calculadas: así el número es correcto
  *       aunque quien llama lo haga cada 1 ms (el lazo) o cada 10 ms (las primitivas de movimiento).
+ *
+ * 🔬 **Por qué 20 y no otro valor (medido el 2026-10-11, forzando el límite con `Kp = 0,20`)**: el
+ * tamaño de la ventana mueve **a la vez** el retardo (~N/2 muestras) y la cuantización (una cuenta
+ * partida por la ventana), **en sentidos opuestos**. Así que tiene un óptimo y no se puede jugar con
+ * él a gusto:
+ *
+ * | Muestras | Retardo | Cuantización | σ(duty) con `Kp = 0,20` |
+ * |--:|--:|--:|--:|
+ * | 10 | ~10 ms | 28,7 mm/s | 8 % |
+ * | **20** | **~15 ms** | **14,3 mm/s** | **28 %** |
+ * | 40 | ~25 ms | 7,2 mm/s | 51 % (y el lazo se iba a 428 mm/s pidiendo 300) |
+ *
+ * ⇒ **El que manda es el retardo, no la resolución**: con la ventana de 40 la medida es 4× más fina y
+ * el lazo va mucho peor. Pero acortar tampoco sirve, porque la cuantización se come lo que se gana. Y
+ * con `Kp = 0,10` (la buena) la σ de la velocidad **medida en cuentas** sale la misma (0,7) con
+ * ventana de 10 y de 20 ⇒ el residuo es cuantización pura y el lazo está en el suelo de la medida.
+ * **Ni acortar ni alargar sube el límite de `Kp`**: el acoplamiento es real y este valor lo tiene
+ * cerca del óptimo. Romperlo exigiría otro estimador (método M/T), pero el premio esperable en `Kp`
+ * es de un factor ~1,5-2, no un cambio de escala.
  */
 #define ENCODER_VEL_VENTANA   20U
 
