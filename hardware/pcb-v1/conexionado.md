@@ -470,6 +470,61 @@ trae gratis el **`IWDG`** (perro guardián independiente, con su propio oscilado
 deja de refrescarlo, el MCU **se reinicia** y las entradas `xIN` caen a su pull-down ⇒ el puente queda
 en *coast*. Cuesta **0 pines y 0 componentes**.
 
+### `nFAULT` como indicador visual (sin pin)
+
+Idea: no leerlo con el MCU, pero **verlo** con un LED. Es buena para un robot que hace intentos de
+~15 s con alguien mirando.
+
+#### Dos LEDs en antiparalelo **no** funcionan
+
+`nFAULT` es **salida *open-drain***: solo puede **hundir** a 0 V, **nunca empujar** a 3,3 V. Con dos
+LEDs en antiparalelo entre `nFAULT` y `3V3`:
+
+| LED | Camino | ¿Puede lucir? |
+|:--|:--|:--|
+| Rojo (ánodo en `3V3`) | `3V3` → LED → `nFAULT` (a 0 V) | ✅ **cuando hay avería** |
+| Verde (ánodo en `nFAULT`) | necesitaría `nFAULT` > `3V3` + V_F | ❌ **nunca**: no existe esa tensión |
+
+⇒ El par antiparalelo se comporta como **un solo LED rojo**: lucen en avería, apagado el resto. No da
+verde.
+
+#### El verde ya está puesto
+
+El módulo trae **`R2` (4k7) + `LED1` entre `VCC` y GND**, y `VCC` es el riel de 9 V del boost ⇒ **el
+LED verde del módulo ya significa «boost vivo»**. Solo falta el rojo.
+
+#### Circuito (2 componentes)
+
+```
+3V3 ──┬── [10 kΩ] ──────────┬──── nFAULT (open-drain del DRV8833)
+      │                     │
+      └── [1 kΩ] ── LED rojo ─┘      ánodo hacia 3V3 · cátodo hacia nFAULT
+```
+
+| Elemento | Valor | Cuenta |
+|:--|:--|:--|
+| `R` del LED | **1 kΩ** | (3,3 − 1,9) / 1 k ≈ **1,4 mA**. El pin aguanta **5 mA** (`V_OL` = 0,5 V a 5 mA) |
+| *Pull-up* | **10 kΩ** | Deja a `nFAULT` un nivel definido (3,3 V) y apaga el LED con seguridad cuando no hay avería |
+
+#### Por qué se ve fijo y no parpadeando
+
+La protección del DRV8833 **reintenta cada `t_OCP` = 1,35 ms** y en cada ciclo deja `nFAULT` a 0 V:
+
+| Estado | Duración |
+|:--|--:|
+| `nFAULT` bajo (puente desactivado) | **1,35 ms** |
+| `nFAULT` alto (reintento) | ~4 µs (`t_DEG` del OCP) |
+
+⇒ **99,7 % del tiempo encendido** ≈ 740 Hz, invisible al ojo. **Rojo fijo = avería persistente.**
+
+⚠️ `nFAULT` también baja por **subtensión de `VM`** y por **sobretemperatura**, no solo por
+sobrecorriente. Con la LiPo cerca del final, un rojo puede significar «el riel se hunde», que es
+información igual de útil.
+
+> 💡 Si algún día se quiere **además** que el MCU lo sepa, basta llevar `nFAULT` a **`PB2`** como
+> entrada con pull-up interno (así el `10 kΩ` externo sobra). Cuesta el último pin libre; hoy no hace
+> falta porque el LED ya avisa a quien mira.
+
 ### Decidido (2026-11-12): `nSLEEP` a un GPIO, `nFAULT` sin usar
 
 `nFAULT` **no se cablea** (no hace falta enterarse de la avería). El que se usa es **`nSLEEP`**, y no
