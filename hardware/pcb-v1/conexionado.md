@@ -23,9 +23,9 @@ conviene ponerle a la etiqueta en KiCad, para que la red sobreviva de una hoja a
 | **D4** | **Riel de la OLED** | **5 V** ✅ | El módulo lleva su propio regulador: a 5 V regula bien. Los pull-ups del I2C van al **3,3 V** en cualquier caso |
 | **D5** | **¿El buck es MP2338?** | **Sí** ✅ | El **MP1584 está NRND** y su hoja de datos remite al MP2338 ([#13](https://github.com/pepechorva/Rabosa_micromouse/issues/13)). Se queda el riel de 5 V (**D3+D4**), así que el buck es de **5 V** |
 
-> ⚠️ **No queda ni un pin libre.** Con el reparto actual están ocupados **PA0–PA14, PB0–PB15 y
-> PC13–PC15**: el único GPIO disponible es **PA15** (y es JTDI, necesita el JTAG desactivado). Si la
-> V2 quiere succión, o se libera un pin o se cambia de encapsulado. Ver [#9](https://github.com/pepechorva/Rabosa_micromouse/issues/9).
+> ⚠️ **Quedan dos GPIO: `PA15` y `PB2`.** Todo lo demás está ocupado. Si la V2 quiere succión, o se
+> usa uno de esos dos, o se libera un pin con un decodificador, o se cambia de encapsulado. Ver
+> [#9](https://github.com/pepechorva/Rabosa_micromouse/issues/9).
 
 ---
 
@@ -414,14 +414,68 @@ PC13–PC15, que es justo donde no se puede pedir corriente.
 
 ## Resumen: pines ocupados y libres
 
-| Puerto | Ocupados | Libre |
+| Puerto | Ocupados | Estado |
 |:--|:--|:--|
-| **PA** | PA0–PA14 (encoder, ADC, PWM, SWD, botón) | **PA15** (JTDI) |
-| **PB** | PB0–PB15 (ADC, IR, I2C, UART, SPI, botón, BOOT1) | **ninguno** |
-| **PC** | PC13 (LED), PC14, PC15 (botones) | **ninguno** |
+| **PA** | PA0–PA1 (encoder izq.) · PA2–PA5 (ADC pared) · PA6–PA7 (encoder der.) · PA8–PA11 (PWM) · PA12 (botón OK) · PA13–PA14 (SWD) | **`PA15` libre** (JTDI, requiere JTAG desactivado, que ya lo está) |
+| **PB** | PB0–PB1 (ADC batería) · PB3–PB5, PB8 (emisores IR) · PB6–PB7 (I2C) · PB9 (botón UP) · PB10–PB11 (USART3) · PB12–PB15 (SPI2) | **`PB2` utilizable**: es `BOOT1`, y con `BOOT0 = 0` su valor es **indiferente** (AN2586, tabla 2) |
+| **PC** | PC13 (LED) · PC14, PC15 (botones MENU y DOWN) | ninguno |
 
-⇒ **Un solo GPIO libre en todo el microcontrolador.** Es la restricción que condiciona la V2 (y el
-motivo por el que la succión no cabe sin liberar un pin o cambiar de encapsulado).
+⇒ **Dos GPIO disponibles: `PA15` y `PB2`.** Y no hay más sin quitar algo:
+
+| Para liberar… | Se recuperan | Coste |
+|:--|:-:|:--|
+| Decodificador **2→4** para los emisores IR (74AHC139) | **+2** | 1 integrado, y se pierde la posibilidad de encender dos a la vez (hoy nunca se hace) |
+| Un botón menos (4 → 3) | +1 | Cambia la UI |
+| El LED de `PC13` | +1 | Solo 3 mA, y el LED integrado de la placa no se puede quitar |
+
+⚠️ **`PC13`–`PC15` no son «pines libres disfrazados»**: el LED y dos botones van ahí porque eran los
+que quedaban, no porque sean buenos pines (PC13 aguanta 3 mA como salida).
+
+---
+
+## `nSLEEP` y `nFAULT`: cómo usarlos
+
+### Lo que hace el chip ante una avería (datasheet, tabla 3 y §7.3.2)
+
+- **La protección es de reintento automático**, no un pestillo: ante sobrecorriente, el puente afectado
+  se desactiva, `nFAULT` baja, y **se reactiva solo** pasado `t_OCP` = **1,35 ms**. Si la avería sigue,
+  el ciclo se repite indefinidamente (3,3 A de disparo, 4 µs de *deglichting*).
+- `nFAULT` es **salida *open-drain***: en reposo está en alta impedancia y hay que subirla.
+- Solo se desactiva **el puente** donde se detecta la avería; el otro sigue funcionando.
+
+### Por qué una AND directa **no** es la solución
+
+La idea —`nSLEEP` = `MCU_habilitar` **AND** `nFAULT`— tiene un problema de realimentación, porque
+`nFAULT` es una **salida del propio chip**:
+
+```
+avería → nFAULT baja → nSLEEP baja → el driver duerme → sin corriente → la avería desaparece
+       → nFAULT sube → nSLEEP sube → el driver despierta → avería otra vez → …
+```
+
+Con la AND a secas eso **oscila**, y el resultado práctico es el mismo reintento automático que ya
+hace el chip, con el sueño/despertar de propina. Para que corte de verdad hace falta **memorizar** la
+avería: un **biestable** (74AHC1G74) o dos transistores, que mantengan `nSLEEP` a 0 hasta que el MCU
+lo suelte explícitamente. Eso son 1 integrado, 2 pines y una señal más que depurar.
+
+### Y no protege del fallo que sí da miedo
+
+Una AND con `nFAULT` **no evita que un firmware colgado deje el PWM al 100 %**: en ese caso no hay
+avería del driver hasta que el robot choca, y el choque suele llegar tarde. Para eso el STM32F103
+trae gratis el **`IWDG`** (perro guardián independiente, con su propio oscilador interno): si el lazo
+deja de refrescarlo, el MCU **se reinicia** y las entradas `xIN` caen a su pull-down ⇒ el puente queda
+en *coast*. Cuesta **0 pines y 0 componentes**.
+
+### Reparto recomendado de los dos pines
+
+| Pin | Función | Para qué | Componentes |
+|:--|:--|:--|:--|
+| **`PA15`** | Entrada `nFAULT` | Diagnóstico real: saber **por qué** se pararon los motores. Y permite el **pestillo por software** (parar PWM, publicar `>FAULT:1`, rearrancar cuando el usuario quiera) | **Ninguno**: el *open-drain* lo sube el pull-up interno de 30–50 kΩ del pin |
+| **`PB2`** | Reserva | Dejarlo libre: la V2 lo necesitará para la succión, y no obliga a cambiar de encapsulado | — |
+
+Si algún día hace falta el pestillo **en hardware** (porque el robot corre solo y un MCU colgado es
+inaceptable), el camino es **biestable + `PA15`**, no una AND. Pero eso se decide cuando exista el
+problema, no antes.
 
 ---
 
