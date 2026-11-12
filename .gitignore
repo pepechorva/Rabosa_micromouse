@@ -6,6 +6,10 @@
 # README del proyecto (solo el de la raíz; el resto de MD van por carpeta)
 !/README.md
 
+# Licencias de la raíz: el software y el diseño de hardware van con licencias distintas
+!LICENSE
+!LICENSE-HARDWARE
+
 # workspace multi-raíz (opcional versionarlo con git)
 !*.code-workspace
 

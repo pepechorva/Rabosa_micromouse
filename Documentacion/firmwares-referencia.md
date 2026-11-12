@@ -7,9 +7,11 @@ pena adoptar**.
 > 📅 Análisis: **2026-10-05** (KERISE, ZoroBot3 y UKMARSBOT) y **2026-10-10**, cuando se añade
 > **`ukmars/mazerunner-core`**, que resulta ser **el software de verdad del UKMARSBOT**.
 > Repos clonados en `/tmp/refs` (no se han copiado al repo).
-> ⚠️ **Licencias**: `micromouse-kerise-*`, `ukmarsbot` y **`mazerunner-core`** son **MIT** (permisivas,
-> se puede copiar citando); **ZoroBot3 es GPL-3.0** ⇒ si se copia código suyo, este proyecto tendría
-> que pasar a GPL-3.0.
+> ⚠️ **Licencias**: `micromouse-kerise-*`, `ukmarsbot` y **`mazerunner-core`** son **MIT** (permisivas:
+> se puede reutilizar citando); **ZoroBot3 es GPL-3.0**. Desde el **2026-10-30** este proyecto es
+> **GPL-3.0-or-later** en software y **CERN-OHL-S-2.0** en hardware (ver `LICENSE` y
+> `LICENSE-HARDWARE`), así que reutilizar lo MIT es compatible, y de ZoroBot3 se toman **ideas** —
+> su código obligaría a mantener la GPL y atribuir.
 
 ## Qué se ha analizado
 

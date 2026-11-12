@@ -244,5 +244,31 @@ cd firmware
 platformio device monitor -b 115200
 ```
 
+---
+
+## ⚖️ Licencia
+
+Doble licencia, una por tipo de obra:
+
+| Qué | Licencia | Fichero |
+|:----|:---------|:--------|
+| **Software** — `firmware/` y los scripts de banco de `firmware/test/` | **GPL-3.0-or-later** | [LICENSE](./LICENSE) |
+| **Diseño de hardware** — `mechanical/`, `Documentacion/Pinout.*` y los diagramas de diseño | **CERN-OHL-S-2.0** (fuertemente recíproca) | [LICENSE-HARDWARE](./LICENSE-HARDWARE) |
+
+**Por qué así**: la CERN Open Hardware Licence está pensada para **documentación de diseño y hardware**, no para código. De sus tres variantes, la **S** (fuertemente recíproca) es la que exige que las mejoras del diseño vuelvan al proyecto, y la licencia de software **más próxima** a ella es la **GPL-3.0**. Las dos comparten la misma condición: quien mejore el diseño o el firmware y lo distribuya, tiene que publicar esa mejora.
+
+- Las **hojas de datos** de `Datasheets/` **no** se relicencian: son de sus fabricantes y conservan su aviso propio.
+- Las **imágenes y modelos de terceros** conservan su licencia de origen (ver [`mechanical/CREDITOS-GrabCAD.md`](./mechanical/CREDITOS-GrabCAD.md)).
+- `-or-later` significa que se puede usar la versión 3 de la GPL **o cualquier posterior**.
+
+### Créditos y atribuciones
+
+Este proyecto **se basa** en el trabajo de otros y esa deuda se reconoce por escrito:
+
+- **`ukmars/mazerunner-core`** (Peter Harrison, UK Micromouse Society) — **MIT**. `firmware/core/profile.c` es una adaptación de su `Profile`, y de ahí salen también el esquema de mapa/*flood fill* y la corrección de dirección por CTE. El aviso de copyright original se conserva **en el propio fichero**, como exige la MIT.
+- **`micromouseonline/ukmarsbot`** — **MIT**: geometría, reparto de pines y filosofía del robot.
+- **`OPRobots/ZoroBot3`** — **GPL-3.0**: se leen sus **ideas** (sensores calibrados a distancia, perfil de giro, reseteo por borde de pared), **no su código**.
+- **STMicroelectronics** — el HAL de STM32Cube se enlaza bajo **BSD-3-Clause**; es un paquete externo de PlatformIO y no está en este repositorio.
+
 
 
