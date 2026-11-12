@@ -88,29 +88,44 @@ Separarlos físicamente en el layout, y que el de potencia sea el que esté junt
 
 **Descarga profunda**: se controla **por firmware** (decisión 2026-11-12). Ver el apartado siguiente.
 
-#### Batería baja: qué apaga el firmware, y hasta dónde puede
+#### Batería baja: no arrancar por debajo de 6,6 V
 
-Política decidida: con la batería demasiado baja **no funcionan ni los motores ni los LEDs, solo la
-pantalla OLED**. Lo que ya hace el firmware hoy: `BAT_V_AVISO_PACK` = **6,60 V** avisa, y
-`BAT_V_CRIT_PACK` = **6,00 V** lleva a `FAULT` (frena, parpadea el LED y avisa por pantalla), que se
-abandona con **OK** y no se reintenta hasta que la medida se recupere.
+Política decidida (2026-11-12): **por debajo de 6,6 V el robot no arranca**, y se avisa con la
+pantalla. No hace falta «solo OLED»: con **dos baterías** se cambia la baja y se pone a cargar la otra,
+así que el estado de batería crítica no tiene que durar.
 
-⚠️ **La ventana «solo OLED» es estrecha, y no por el firmware: por el hardware.**
+Lo que ya hace el firmware hoy: `BAT_V_AVISO_PACK` = **6,60 V** avisa y `BAT_V_CRIT_PACK` = **6,00 V**
+lleva a `FAULT` (frena, parpadea el LED y avisa por pantalla). Lo nuevo es **negar el arranque** al
+pasar de 6,6 V, en vez de esperar a 6,00 V.
 
-El MCU **cuelga del riel de 5 V**, que sale del buck desde `VBAT`. Y un buck **no puede dar 5 V con
-5 V de entrada**: el MP2338 necesita del orden de **4,5–5,5 V** en la entrada para regular. Así que:
+✅ **Elegir 6,6 V arregla el problema de la ventana.** A 6,6 V el buck tiene **1,6 V de margen** hasta
+su mínimo, así que la pantalla se lee con holgura; el problema que tenía el corte a 6,00 V (que caía
+justo donde el buck deja de regular) desaparece. Y como el umbral se comprueba **al arrancar, con los
+motores parados**, no hay falsos positivos por la caída de tensión del arranque.
 
-| `VBAT` | Qué sigue vivo |
+| `VBAT` al arrancar | Comportamiento |
 |:--|:--|
-| > 6,6 V | todo (`OK`) |
-| 6,0–6,6 V | todo, con aviso (`AVISO`) |
-| **6,0 V → ~5,5 V** | **motores cortados, OLED encendida** ← la ventana que se quiere |
-| < ~5,5 V | **se cae el riel de 5 V: se apaga también la OLED** (la pantalla la maneja el MCU, que es el que necesita 3,3 V de ese riel) |
+| > 6,6 V | arranca con normalidad |
+| **≤ 6,6 V** | **no arranca**: pantalla con el aviso y LED rojo parpadeando |
 
-⇒ El umbral de **6,00 V no es arbitrario: está justo donde el buck empieza a fallar**, o sea que la
-pantalla se apaga en cuanto el pack baja un poco más. Sirve para decir «recarga», no para quedarse
-mirando. Si algún día hiciera falta una ventana larga habría que **buck-boost** en vez de buck; hoy
-no compensa.
+Durante un intento (≈15 s) no hace falta cortar: se termina la pasada y se cambia la batería.
+
+#### El MCU **no** puede encender el LED rojo… salvo que `nFAULT` vaya a un pin
+
+`nFAULT` lo manda **el DRV8833**, no el MCU: con el driver despierto y sin avería está en alta
+impedancia, así que el LED rojo **solo** luce si el driver reporta fallo. Si el aviso de batería tiene
+que hacerlo el firmware, hay que llevar `nFAULT` a **`PB2`** y manejarlo como **salida *open-drain***:
+
+| Estado de `PB2` | Qué pasa | Qué se consigue |
+|:--|:--|:--|
+| **Liberado** (alta impedancia) | El *pull-up* manda; el pin **lee** lo que diga el driver | Diagnóstico de avería por software, gratis |
+| **Hundido a 0** | Enciende el LED rojo | **Aviso visual que controla el firmware** (parpadeo de batería baja) |
+
+⚠️ **Es seguro porque es *open-drain***: `PB2` solo puede hundir, nunca empujar, así que no hay
+conflicto con la salida del driver aunque los dos estén bajos. **Nunca configurarlo como push-pull**
+en este net, o se pelea con `nFAULT`.
+
+⚠️ Consecuencia: **`PB2` deja de estar libre**. No queda ningún GPIO (ver la tabla de pines).
 
 **Qué LEDs se pueden apagar de verdad:**
 
@@ -118,7 +133,7 @@ no compensa.
 |:--|:--|
 | Onboard `PC13` | ✅ sí (GPIO) |
 | **Verde del módulo** (`R2` + `LED1` sobre `VCC` = 9 V) | ❌ **no**: está cableado al riel de motores. Luce mientras el boost esté vivo |
-| **Rojo de `nFAULT`** | ✅ **solo**: al dormir el driver (`nSLEEP` = 0) `nFAULT` queda en alta impedancia y el LED se apaga |
+| **Rojo de `nFAULT`** | ✅ **sí, si va a `PB2`** (hundir el pin lo enciende); y se apaga solo al dormir el driver, porque `nFAULT` queda en alta impedancia |
 
 ⇒ **El verde del módulo se quedará encendido** aunque el firmware corte lo demás: es el único LED que
 contradice la política, y no hay forma de evitarlo sin cortar el boost.
@@ -495,10 +510,10 @@ PC13–PC15, que es justo donde no se puede pedir corriente.
 | Puerto | Ocupados | Estado |
 |:--|:--|:--|
 | **PA** | PA0–PA1 (encoder izq.) · PA2–PA5 (ADC pared) · PA6–PA7 (encoder der.) · PA8–PA11 (PWM) · PA12 (botón OK) · PA13–PA14 (SWD) · **PA15 (`nSLEEP`)** | **completo** (PA15 era JTDI; lo libera el JTAG desactivado) |
-| **PB** | PB0–PB1 (ADC batería) · PB3–PB5, PB8 (emisores IR) · PB6–PB7 (I2C) · PB9 (botón UP) · PB10–PB11 (USART3) · PB12–PB15 (SPI2) | **`PB2` libre**: es `BOOT1`, y con `BOOT0 = 0` su valor es **indiferente** (AN2586, tabla 2) |
+| **PB** | PB0–PB1 (ADC batería) · PB3–PB5, PB8 (emisores IR) · PB6–PB7 (I2C) · PB9 (botón UP) · PB10–PB11 (USART3) · PB12–PB15 (SPI2) | **`PB2`**: `nFAULT` en *open-drain* (es `BOOT1`, indiferente con `BOOT0` = 0 · AN2586, tabla 2) |
 | **PC** | PC13 (LED) · PC14, PC15 (botones MENU y DOWN) | ninguno |
 
-⇒ **Un GPIO libre: `PB2`.** `PA15` queda ocupado por `nSLEEP` (ver más abajo). Y no hay más sin quitar algo:
+⇒ **Ningún GPIO libre.** `PA15` = `nSLEEP` y `PB2` = `nFAULT`. Para tener más hay que quitar algo:
 
 | Para liberar… | Se recuperan | Coste |
 |:--|:-:|:--|
@@ -653,7 +668,7 @@ tiene que **activarlo explícitamente** antes del primer movimiento.
 | Pin | Función | Nota |
 |:--|:--|:--|
 | **`PA15`** | **Salida `nSLEEP`** | Push-pull. En reposo a 0. No necesita nada externo |
-| **`PB2`** | **Libre** (reserva) | `BOOT1`, indiferente con `BOOT0` = 0. Útil para la V2 |
+| **`PB2`** | **`nFAULT`**, como *open-drain* | Da diagnóstico por software **y** control del LED rojo para el aviso de batería |
 
 ---
 
