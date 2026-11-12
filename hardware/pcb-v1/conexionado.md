@@ -54,6 +54,42 @@ conviene ponerle a la etiqueta en KiCad, para que la red sobreviva de una hoja a
 > salida, o replantear **D2** si aparece recalentamiento o caída de tensión con los dos motores en
 > *stall*.
 
+#### Entrada de batería y protecciones
+
+El prototipo **no tiene ninguna**: la LiPo va directa al boost y al buck. La V1 lo arregla.
+
+**Tres amenazas distintas, y se tapan con cosas distintas:**
+
+| Amenaza | Qué pasa | Qué la tapa |
+|:--|:--|:--|
+| **Corto** en la placa o el cableado | El pack puede dar **≈36 A** teóricos (450 mAh × 80C): la pista hace de fusible y el PLA del chasis se funde | **PTC** en serie con `VBAT` |
+| **Polaridad inversa** | Se destruyen el boost, el buck y el driver a la vez | **P-MOSFET** en serie (o confiar en el JST, que va con llave) |
+| **Descarga profunda** | La celda baja de 3,0 V y se degrada | Aquí **sí hay protección**: `BAT_CRIT_PACK` en el firmware frena y avisa |
+
+| Elemento | Valor propuesto | Coste en tensión / calor | Veredicto |
+|:--|:--|:--|:--|
+| **PTC** (polifusible rearmable) | Retención **2,6 A**, disparo 5,2 A, **1812**, ≈40 mΩ | 0,08 V y 160 mW a 2 A | ✅ **Sí**: rearmable, y tolera el pico de carga de los condensadores al enchufar |
+| **P-MOSFET en serie** | `V_DS` ≥ 20 V, `R_DS(on)` bajo. Un AO3401A (≈60 mΩ) da 0,12 V y 240 mW a 2 A ⇒ **calienta**; uno de <30 mΩ lo parte por la mitad | 40–120 mV | ⚠️ **Opcional**: el JST XH va con llave. Si se pone, elegir uno de baja `R_DS(on)` |
+| Fusible rápido | 2 A | 0 | ❌ Se funde a mitad de competición, y el pico de *inrush* de los condensadores puede dispararlo sin avería |
+
+**Orden recomendado en la entrada:**
+
+```
+JST XH-2 ──► [ PTC 2,6 A ] ──► [ interruptor ] ──► VBAT ──┬── boost ──► 9 V
+                                                          └── buck  ──► 5 V
+```
+
+⚠️ **El PTC va antes del interruptor**, para que también proteja el interruptor y el cableado interno.
+
+⚠️ **Cuarta vía de entrada que no hay que olvidar: el conector de balance.** La celda 1 se mide del
+hilo central del balance, así que hay **dos conectores** de batería en la placa. El de balance no
+lleva protección y sus pines quedan al aire: si se cruza con el de potencia, hay corto directo.
+Separarlos físicamente en el layout, y que el de potencia sea el que esté junto al PTC.
+
+**Descarga profunda**: el firmware ya la cubre (`BAT_CRIT_PACK` = 6,00 V ⇒ `FAULT`), pero solo
+mientras el MCU esté vivo. Con el interruptor apagado, el boost y el buck se apagan por su propio
+`UVLO` (≈2 V en el MT3608), que **no** protege una LiPo. No dejar el robot conectado días.
+
 **Desacoplo obligatorio** (de `hardware.md` §4.6, tras los reinicios del 30-sep):
 
 | Condensador | Dónde | Para qué |
@@ -607,7 +643,12 @@ Para que las etiquetas sobrevivan entre hojas del esquemático:
   a **cambiar de todas formas**, no tiene sentido invertir en un LQFP48 desnudo en la V1: el módulo (o
   un zócalo) se tira en cuanto llegue la V2, y el esfuerzo va a la placa. Sigue pendiente de cerrar
   junto con la decisión de una o dos alturas.
-- **La forma de la placa**: el contorno sale del FreeCAD del chasis, que se está rehaciendo.
+- **La forma de la placa**: el contorno sale del **FreeCAD del chasis**, que se va a rehacer a mano
+  (el `chasis-v1.py` y su DXF no se usan).
+- **El interruptor de encendido**: no existe en el prototipo ni en su BOM. Hay que decidir tipo,
+  posición y si corta solo `VBAT` o también el conector de balance.
+- **El modelo concreto de boost** (≥2 A de salida) y la disponibilidad del MP2338.
+- **Conectores de motores**, pads de SWD/UART y test points.
 - **Los conectores**: JST XH para batería y motores es el candidato (hay hoja de datos en
   `Datasheets/jst-xh.pdf`), pero no está decidido.
 - **La posición de los sensores**: las cotas del montaje en «V» dependen del chasis nuevo.
