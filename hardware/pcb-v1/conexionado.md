@@ -540,14 +540,24 @@ tanto por el consumo como por lo que pasa cuando el firmware falla.
 | **MT3608 apagado** (`V_EN` = 0) | **0,1–1 µA** | `mt3608.pdf`, eléctricas |
 | Tiempo de arranque del driver (`t_WAKE`) | **1 ms** | `drv8833.pdf` |
 
-⚠️ **Dormir el driver no apaga el boost.** Ahorra sus **1,7–3 mA** del riel de 9 V, pero el MT3608
-se queda consumiendo **100–200 µA** de la batería porque sigue con `EN` alto. Para apagarlo de verdad
-hay que bajar su **`EN`** (pin 4 del SOT23-6: «a high input at EN turns on the converter»), y eso
-**los módulos comerciales suelen tenerlo atado a `VIN`** ⇒ habría que comprobar si está accesible o
-soldar al pin del integrado.
+⚠️ **Dormir el driver no apaga el boost**, porque **el módulo MT3608 no tiene `EN` accesible** (el
+integrado sí lo tiene, pin 4, pero los módulos comerciales lo atan a `VIN`). `nSLEEP` ahorra el
+consumo del **DRV8833**, no el del convertidor.
 
-> 💡 Si algún día se quiere el ahorro completo, **un solo GPIO** puede llevar `nSLEEP` **y** el `EN`
-> del boost a la vez. Y si se baja el `EN`, el riel de 9 V desaparece y el driver se apaga solo.
+#### ¿Merece la pena? Los dos números, sobre una batería de 450 mAh
+
+| Qué se apaga | Consumo | Al día | Veredicto |
+|:--|--:|--:|:--|
+| **DRV8833** (`nSLEEP`) | 1,7–3 mA | **≈16 %** | ✅ **Sí**: es el 16 % de la batería por día |
+| **MT3608** (solo con `EN` = 0) | 100–200 µA | ≈0,8 % | ❌ No compensa buscarlo en el módulo |
+| MT3608, riel de 9 V sin carga (no hay forma de apagarlo aquí) | 100–200 µA | ≈0,8 % | — |
+
+⇒ **Dormir el DRV8833 sí; perseguir el `EN` del boost, no.** El convertidor se queda como está y su
+consumo en reposo es un 5 % del del driver.
+
+> 💡 Si en la **V1** el boost no va como módulo sino con el **MT3608 desnudo** (SOT23-6), el pin `EN`
+> queda disponible y se podría apagar con el mismo GPIO. Ya puestos, sale gratis; pero la ganancia
+> es de 0,8 % al día, así que no debe ser un criterio para elegir.
 
 #### El argumento que sí pesa: qué pasa si el firmware se cuelga
 
