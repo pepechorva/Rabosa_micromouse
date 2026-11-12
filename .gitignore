@@ -56,6 +56,17 @@ firmware/include/wifi_secrets.h
 !firmware/filter/*.c
 !firmware/filter/*.h
 
+# capa CORE (logica de mision portable; se compila tambien en el PC)
+!firmware/core/
+!firmware/core/*.c
+!firmware/core/*.h
+
+# capa DRIVERS (dispositivos: implementan core/core_io.h)
+!firmware/drivers/
+!firmware/drivers/*.c
+!firmware/drivers/*.h
+!firmware/drivers/README.md
+
 # capa SENSOR
 !firmware/sensor/
 !firmware/sensor/*.c
