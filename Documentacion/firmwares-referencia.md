@@ -571,6 +571,8 @@ leer tal cual:
 
 ## 9. Relacionado
 
+- [estado-del-arte.md](./estado-del-arte.md) — **la vista de decisión**: matriz de capacidades, qué
+  funciona medido y las fases F1–F9 con su puerta de salida
 - [esquema-firmware.md](./esquema-firmware.md) — cómo está montado lo nuestro
 - [estado-del-proyecto.md](./estado-del-proyecto.md) — qué está hecho y qué falta
 - [cinemáticas.md](./cinemáticas.md) — perfiles trapezoidal y en S (teoría que KERISE ya implementa)

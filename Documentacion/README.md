@@ -19,6 +19,7 @@ nuevo se da de alta aquí.
 | **Llevar el robot a un laberinto SIN PC** | [laberinto-sin-pc.md](./laberinto-sin-pc.md) |
 | **Ejecutar la campaña de puesta a punto** (los 4 bloques, con sus puertas) | [puesta-a-punto.md](./puesta-a-punto.md) |
 | **El plan de mejoras**: qué falló, qué hacen los demás y qué NO copiamos | [plan-mejoras.md](./plan-mejoras.md) |
+| **Estado del arte**: qué tenemos, qué funciona, qué falta y en qué orden | [estado-del-arte.md](./estado-del-arte.md) |
 | Ver el chasis nuevo (placa base 70 × 90 mm) | [chasis-v1.md](./chasis-v1.md) |
 | **Guion de la sesión de pruebas del 2-oct** (histórico) | [sesion-pruebas.md](./sesion-pruebas.md) |
 | Ver qué se ha probado ya, día a día | [historial-pruebas.md](./historial-pruebas.md) |
@@ -58,6 +59,7 @@ nuevo se da de alta aquí.
 | [entorno-desarrollo.md](./entorno-desarrollo.md) | Toolchain, compilación, flasheo, telemetría Teleplot y convenciones de código |
 | [comandos-serie.md](./comandos-serie.md) | **Órdenes por USART3** (entrada): `BAT LIST`, `BAT <UMBRAL> <valor>`, `HELP` — ajustar umbrales sin recompilar |
 | [estado-del-proyecto.md](./estado-del-proyecto.md) | Snapshot del estado actual y siguientes pasos |
+| [estado-del-arte.md](./estado-del-arte.md) | **Estado del arte frente a los firmwares de referencia**: matriz de capacidades, qué funciona medido, qué está escrito y no vale, qué falta (con coste y bloqueos) y las fases F1–F9 con su puerta |
 | [maquina-estados-menu.md](./maquina-estados-menu.md) | Máquina de estados y menú con botones+OLED (**implementados el 28-sep**): estados, árbol, API y fases |
 | [control-pid.md](./control-pid.md) | **CONTROL**: lazo de velocidad por rueda (PID + rampas), unidades, decisiones de diseño, sintonía Z-N y verificación en el PC |
 | [lazo-control.md](./lazo-control.md) | **El lazo de control en interrupción (TIM1)**: el retardo medido (picos de 68,8 ms), qué arregla un ISR y qué no, dónde vive cada cosa y las secciones críticas |
@@ -112,4 +114,4 @@ Rabosa-MVR/
 > `freecad/*.FCStd`. Quedan **fuera**: los ZIP/STEP de GrabCAD, `Obsidian/` (cuaderno personal) y los
 > artefactos de PlatformIO (`firmware/.pio/`).
 
-> **Última actualización de este índice:** 28 de septiembre de 2026.
+> **Última actualización de este índice:** 30 de octubre de 2026.
