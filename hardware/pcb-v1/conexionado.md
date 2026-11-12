@@ -116,7 +116,7 @@ llamado `VCC`: alimenta sus pull-ups y su LED, **no** el chip.
 | `P2` | 4 | `VCC` = **`VM` del chip** | **Salida del boost (9 V)**. Es potencia, no lógica |
 | `P2` | 5 | `IN2` | **PA9** (`PWM1B`, → `AIN2`) |
 | `P2` | 6 | `IN1` | **PA8** (`PWM1A`, → `AIN1`) |
-| `P1` | 1 | `EEP` = **`nSLEEP`** | **Cableado al riel de 5 V** (step-down). Ver el aviso sobre el zener, abajo |
+| `P1` | 1 | `EEP` = **`nSLEEP`** | **`PA15`** en la V1 (el prototipo lo tiene a 5 V; ver la sección de `nSLEEP`) |
 | `P1` | 2 | `OUT1` | Motor **izquierdo**, borne + (`AOUT1`) |
 | `P1` | 3 | `OUT2` | Motor **izquierdo**, borne − (`AOUT2`) |
 | `P1` | 4 | `OUT3` | Motor **derecho**, borne + (`BOUT1`) |
@@ -172,6 +172,10 @@ módulo lo saca al conector **sin** pull-up). Si no, dejar sin conectar. El firm
 ✅ **Resuelto en hardware (2026-11-12), y probado en el robot**: el `VCC` del módulo va **directo
 a la salida del boost (9 V)** y ese es el `VM` del chip; el `nSLEEP` (`EEP`) va **soldado al riel de
 5 V** del step-down. Son dos nets distintas a propósito: **potencia a 9 V, lógica a 5 V**. Funciona.
+
+En la **V1 se cambia `nSLEEP` a un GPIO** (`PA15`): el prototipo se queda como está, pero la placa
+nueva gana el apagado del driver por software y el paro automático si el MCU se cuelga. Ver la
+sección de `nSLEEP` más abajo.
 
 > [!NOTE] Por qué el zener de `nSLEEP` no es un problema aquí
 > `nSLEEP` lleva un zener interno que recorta a **6,5 V** y no admite más de **250 µA**. Con el pin a
@@ -416,11 +420,11 @@ PC13–PC15, que es justo donde no se puede pedir corriente.
 
 | Puerto | Ocupados | Estado |
 |:--|:--|:--|
-| **PA** | PA0–PA1 (encoder izq.) · PA2–PA5 (ADC pared) · PA6–PA7 (encoder der.) · PA8–PA11 (PWM) · PA12 (botón OK) · PA13–PA14 (SWD) | **`PA15` libre** (JTDI, requiere JTAG desactivado, que ya lo está) |
-| **PB** | PB0–PB1 (ADC batería) · PB3–PB5, PB8 (emisores IR) · PB6–PB7 (I2C) · PB9 (botón UP) · PB10–PB11 (USART3) · PB12–PB15 (SPI2) | **`PB2` utilizable**: es `BOOT1`, y con `BOOT0 = 0` su valor es **indiferente** (AN2586, tabla 2) |
+| **PA** | PA0–PA1 (encoder izq.) · PA2–PA5 (ADC pared) · PA6–PA7 (encoder der.) · PA8–PA11 (PWM) · PA12 (botón OK) · PA13–PA14 (SWD) · **PA15 (`nSLEEP`)** | **completo** (PA15 era JTDI; lo libera el JTAG desactivado) |
+| **PB** | PB0–PB1 (ADC batería) · PB3–PB5, PB8 (emisores IR) · PB6–PB7 (I2C) · PB9 (botón UP) · PB10–PB11 (USART3) · PB12–PB15 (SPI2) | **`PB2` libre**: es `BOOT1`, y con `BOOT0 = 0` su valor es **indiferente** (AN2586, tabla 2) |
 | **PC** | PC13 (LED) · PC14, PC15 (botones MENU y DOWN) | ninguno |
 
-⇒ **Dos GPIO disponibles: `PA15` y `PB2`.** Y no hay más sin quitar algo:
+⇒ **Un GPIO libre: `PB2`.** `PA15` queda ocupado por `nSLEEP` (ver más abajo). Y no hay más sin quitar algo:
 
 | Para liberar… | Se recuperan | Coste |
 |:--|:-:|:--|
@@ -466,16 +470,51 @@ trae gratis el **`IWDG`** (perro guardián independiente, con su propio oscilado
 deja de refrescarlo, el MCU **se reinicia** y las entradas `xIN` caen a su pull-down ⇒ el puente queda
 en *coast*. Cuesta **0 pines y 0 componentes**.
 
-### Reparto recomendado de los dos pines
+### Decidido (2026-11-12): `nSLEEP` a un GPIO, `nFAULT` sin usar
 
-| Pin | Función | Para qué | Componentes |
-|:--|:--|:--|:--|
-| **`PA15`** | Entrada `nFAULT` | Diagnóstico real: saber **por qué** se pararon los motores. Y permite el **pestillo por software** (parar PWM, publicar `>FAULT:1`, rearrancar cuando el usuario quiera) | **Ninguno**: el *open-drain* lo sube el pull-up interno de 30–50 kΩ del pin |
-| **`PB2`** | Reserva | Dejarlo libre: la V2 lo necesitará para la succión, y no obliga a cambiar de encapsulado | — |
+`nFAULT` **no se cablea** (no hace falta enterarse de la avería). El que se usa es **`nSLEEP`**, y no
+tanto por el consumo como por lo que pasa cuando el firmware falla.
 
-Si algún día hace falta el pestillo **en hardware** (porque el robot corre solo y un MCU colgado es
-inaceptable), el camino es **biestable + `PA15`**, no una AND. Pero eso se decide cuando exista el
-problema, no antes.
+#### Lo que se ahorra de verdad (números del datasheet)
+
+| Concepto | Valor | Fuente |
+|:--|--:|:--|
+| Consumo del DRV8833 **despierto** (`I_VM`) | **1,7–3 mA** | `drv8833.pdf`, eléctricas |
+| Consumo del DRV8833 **en *sleep*** | µA (figura 2) | `drv8833.pdf` |
+| **MT3608 en reposo** (PFM, sin conmutar) | **100–200 µA** | `mt3608.pdf`, eléctricas |
+| **MT3608 apagado** (`V_EN` = 0) | **0,1–1 µA** | `mt3608.pdf`, eléctricas |
+| Tiempo de arranque del driver (`t_WAKE`) | **1 ms** | `drv8833.pdf` |
+
+⚠️ **Dormir el driver no apaga el boost.** Ahorra sus **1,7–3 mA** del riel de 9 V, pero el MT3608
+se queda consumiendo **100–200 µA** de la batería porque sigue con `EN` alto. Para apagarlo de verdad
+hay que bajar su **`EN`** (pin 4 del SOT23-6: «a high input at EN turns on the converter»), y eso
+**los módulos comerciales suelen tenerlo atado a `VIN`** ⇒ habría que comprobar si está accesible o
+soldar al pin del integrado.
+
+> 💡 Si algún día se quiere el ahorro completo, **un solo GPIO** puede llevar `nSLEEP` **y** el `EN`
+> del boost a la vez. Y si se baja el `EN`, el riel de 9 V desaparece y el driver se apaga solo.
+
+#### El argumento que sí pesa: qué pasa si el firmware se cuelga
+
+| `nSLEEP` atado a… | Si el MCU se cuelga o se resetea |
+|:--|:--|
+| **5 V** (como está hoy) | El pin sigue a 5 V, **TIM1 sigue generando PWM** con la última comparación ⇒ **los motores siguen girando** |
+| **Un GPIO del MCU** | El pin queda en alta impedancia ⇒ el **pull-down interno de 500 kΩ** lo lleva a 0 ⇒ **el driver duerme y los motores se paran** |
+
+Es decir: mover `nSLEEP` al MCU convierte un fallo de firmware en un robot parado en vez de un robot
+que se va recto contra la pared. Y `t_WAKE` = **1 ms** es despreciable frente a una celda de 180 mm
+(≈600 ms a 300 mm/s), así que se puede dormir el driver entre movimientos sin coste.
+
+⚠️ Ojo con el arranque: al resetear, el GPIO está en alta impedancia, así que **el driver arranca
+dormido**. Es lo deseable (no hay tirones antes de que el firmware configure `TIM1`), pero el firmware
+tiene que **activarlo explícitamente** antes del primer movimiento.
+
+#### Reparto final de los pines
+
+| Pin | Función | Nota |
+|:--|:--|:--|
+| **`PA15`** | **Salida `nSLEEP`** | Push-pull. En reposo a 0. No necesita nada externo |
+| **`PB2`** | **Libre** (reserva) | `BOOT1`, indiferente con `BOOT0` = 0. Útil para la V2 |
 
 ---
 
@@ -498,8 +537,11 @@ Para que las etiquetas sobrevivan entre hojas del esquemático:
 
 ## Lo que este documento **no** decide
 
-- **D1**: si el microcontrolador va desnudo o como módulo. Depende de si el robot acaba siendo de
-  **una o dos alturas**, y eso lo fija el chasis nuevo.
+- **D1**: si el microcontrolador va desnudo o como módulo. ⚠️ **Argumento nuevo (2026-11-12)**: el
+  F103C8 **no tiene pines para la V2** (solo queda `PB2` libre; la succión no cabe). Como el MCU se va
+  a **cambiar de todas formas**, no tiene sentido invertir en un LQFP48 desnudo en la V1: el módulo (o
+  un zócalo) se tira en cuanto llegue la V2, y el esfuerzo va a la placa. Sigue pendiente de cerrar
+  junto con la decisión de una o dos alturas.
 - **La forma de la placa**: el contorno sale del FreeCAD del chasis, que se está rehaciendo.
 - **Los conectores**: JST XH para batería y motores es el candidato (hay hoja de datos en
   `Datasheets/jst-xh.pdf`), pero no está decidido.
