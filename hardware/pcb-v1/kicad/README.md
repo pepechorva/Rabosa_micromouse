@@ -17,6 +17,10 @@ placa de 70 × 90 mm que hace de PCB y de chasis a la vez
 | `Rabosa-v1.kicad_pcb` | **PCB**: contorno desde el `Edge.Cuts` del chasis, colocación y ruteo |
 | `Rabosa-v1.kicad_sym` | Símbolos propios, si hacen falta |
 
+El esquemático no se dibuja a ciegas: **[`../conexionado.md`](../conexionado.md)** tiene el reparto
+por bloques (alimentación, núcleo, puente H, encoders, IR, IMU, I2C, botones, consola) y las cinco
+decisiones que hay que cerrar antes de empezar.
+
 El contorno de la placa sale del DXF que genera el chasis (el `Edge.Cuts` de
 `mechanical/freecad/chasis-v1.dxf`); con la placa haciendo de chasis, **ese contorno es el
 diseño**, y por eso acaba aquí y no en un STEP suelto.

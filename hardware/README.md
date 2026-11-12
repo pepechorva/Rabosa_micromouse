@@ -15,6 +15,10 @@ Lo que cambia entre formatos es **cómo se materializa**: con cables, o sobre un
 | `cableado/` | Prototipo: placas cableadas entre sí | Conexionado, carcasa impresa, fotos | ⏳ **Pendiente de mover** desde `mechanical/` |
 | [`pcb-v1/`](./pcb-v1/kicad/README.md) | V1: todo en una PCB que hace de chasis | Esquemático, PCB, chasis de 70 × 90 | 🚧 **En diseño** (2026-11-12) |
 
+El diseño de la V1 empieza por el papel: **[`pcb-v1/conexionado.md`](./pcb-v1/conexionado.md)** ordena
+qué terminal de qué componente va a qué red, bloque por bloque, con los valores ya medidos. Es la
+especificación de la que sale el esquemático; el KiCad va después.
+
 ## Qué se hereda y qué no
 
 Es el mismo hardware electrónico, así que la V1 **no invalida la geometría medida**: µm/cuenta
