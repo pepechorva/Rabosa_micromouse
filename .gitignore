@@ -152,6 +152,25 @@ mechanical/**/*.step
 # prefijo `chasis`: un `!.../freecad/*.step` a secas reabriría los ~784 MB de GrabCAD.
 
 # ------------------------------------------------------------------
+# Hardware: una carpeta por FORMATO (cableado / pcb-v1 / …)
+#   - Un solo diseño eléctrico, varios formatos físicos (ver hardware/README.md)
+#   - De momento solo entran los README: los ficheros de CAD y de KiCad se dan
+#     de alta A MANO, un tipo cada vez, cuando existan de verdad
+# ------------------------------------------------------------------
+!hardware/
+!hardware/*.md
+!hardware/*/
+!hardware/*/*.md
+!hardware/*/kicad/
+!hardware/*/kicad/*.md
+
+# KiCad de una versión — descomentar cuando el proyecto exista
+# !hardware/*/kicad/*.kicad_pro
+# !hardware/*/kicad/*.kicad_sch
+# !hardware/*/kicad/*.kicad_pcb
+# !hardware/*/kicad/*.kicad_sym
+
+# ------------------------------------------------------------------
 # Obsidian: cuaderno personal → NUNCA al repositorio
 # (se borró el 2026-09-21; si vuelve a sincronizarse, queda ignorado a propósito)
 # ------------------------------------------------------------------
