@@ -8,6 +8,14 @@ Rabosa-MVR (Minimum Viable Robot) es el robot micromouse con el que quiero prese
 
 Este robot está muy basado en el de UKMARSBOT (https://github.com/micromouseonline/ukmarsbot), y las siguientes iteraciones irán inspirándose hacia Zorobot de OPRobots (https://github.com/OPRobots/ZoroBot3) y Green Giant 5.19V de Green Ye (https://greenye.net/).
 
+> 🚧 **Estado: prototipo** (hito `OSHWDem26`). Todo lo **medido** aquí —µm/cuenta, trocha efectiva,
+> umbrales de pared, ganancias del PID— corresponde al montaje de prototipo: chasis impreso y
+> electrónica soldada sobre placa de prototipos con *wrapping*. La **V1** (misma electrónica, con la
+> placa haciendo de chasis y de PCB, 70 × 90 mm: [chasis-v1.md](Documentacion/chasis-v1.md)) hereda
+> la **geometría del actuador** —mismo motor y misma rueda— pero **no** los umbrales de pared ni la
+> calibración del ADC, que dependen de dónde van los sensores y de cuánto ruido hay. Qué
+> funciona y qué falta, con su orden: [estado-del-arte.md](Documentacion/estado-del-arte.md).
+
 ---
 
 
@@ -33,12 +41,17 @@ Rabosa-MVR/
 │   ├── src/
 │   │   └── main.c            Punto de entrada (delega en la capa APP)
 │   ├── app/                  APP      application.c · telemetry.c · buttons.c · oled.c
-│   ├── control/              CONTROL   (por escribir: pid · setpoint · controller)
-│   ├── filter/               FILTER   (por escribir: filter · iekf · odometry)
+│   ├── core/                 CORE     lógica de misión portable: profile.c · core_io.h
+│   │                                  (se compila y se prueba en el PC, sin el STM32)
+│   ├── drivers/              DRIVERS  dispositivos que implementan core_io.h
+│   │                                  (contrato escrito; implementación pendiente)
+│   ├── control/              CONTROL  pid · setpoint · controller
+│   ├── filter/               FILTER   odometry.c (filtros y estimador, por escribir)
 │   ├── sensor/               SENSOR   encoder.c · imu.c · battery.c · encoders.md
 │   ├── hal/                  HAL      adc · drv8833 · gpio · i2c · pwm · spi ·
 │   │                                  systemclock · timers · uart
-│   └── hw/                   HW       io.c · io_def.h
+│   ├── hw/                   HW       io.c · io_def.h
+│   └── test/                 banco del PC: pid_sim · odometry_sim · profile_test · format_test
 │
 ├── Documentacion/            Documentación técnica (índice en su README.md)
 ├── Datasheets/               Hojas de datos (DRV8833, STM32F103, SFH 4550, ST-1KL3A)
