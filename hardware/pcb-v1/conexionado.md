@@ -131,7 +131,7 @@ en este net, o se pelea con `nFAULT`.
 
 | LED | ¿Lo apaga el firmware? |
 |:--|:--|
-| Onboard `PC13` | ✅ sí (GPIO) |
+| Onboard `PC13` | ✅ sí: **parpadea ante cualquier error** (patrón a definir en el firmware) |
 | **Verde del módulo** (`R2` + `LED1` sobre `VCC` = 9 V) | ❌ **no**: está cableado al riel de motores. Luce mientras el boost esté vivo |
 | **Rojo de `nFAULT`** | ✅ **sí, si va a `PB2`** (hundir el pin lo enciende); y se apaga solo al dormir el driver, porque `nFAULT` queda en alta impedancia |
 
@@ -194,6 +194,22 @@ prefiere arreglarlo en hardware, hay que quitar ese cruce del firmware a la vez.
 entradas `xIN` son *logic-level* —`V_IH` ≥ **2 V**, `V_IL` ≤ 0,7 V— con **pull-down interno de
 150 kΩ**, así que los 3,3 V del MCU las atacan directamente. Algunos módulos *breakout* sacan un pin
 llamado `VCC`: alimenta sus pull-ups y su LED, **no** el chip.
+
+#### Decisiones cerradas el 2026-11-12 (resumen para retomar)
+
+| Tema | Decisión |
+|:--|:--|
+| Succión | ❌ **No en la V1**; queda para la V2, que exige **más pines** (el F103C8 no tiene) |
+| `nSLEEP` | ✅ **Sí**, en **`PA15`**: apaga el driver y lo deja dormido si el MCU se cuelga |
+| `nFAULT` | ✅ **Sí**, en **`PB2`** *open-drain*: diagnóstico por software **y** LED rojo |
+| LED rojo | **`nFAULT` → LED rojo + `1 kΩ` a `3V3`**, con *pull-up* de **`10 kΩ`** (obligatorio en F1) |
+| LED `PC13` | **Parpadea ante cualquier error**; el patrón lo define el firmware |
+| Batería baja | **≤ 6,6 V: no arranca**, aviso en OLED y LED rojo parpadeando |
+| Polaridad inversa | ✅ Resuelta por el **JST XH con llave**; **sin P-MOSFET** |
+| PTC | ⏳ **En estudio**, no descartado |
+| Interruptor | ✅ **Sí**; falta tipo y posición |
+| Emisores IR | 4 GPIO directos: **sin decodificador** en la V1 |
+| Botones | **4** (no se quita ninguno) |
 
 #### Conectores del módulo (para cablear el prototipo o copiar la hoja)
 
