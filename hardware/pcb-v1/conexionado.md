@@ -113,15 +113,15 @@ llamado `VCC`: alimenta sus pull-ups y su LED, **no** el chip.
 | `P2` | 1 | `IN4` | **PA11** (`PWM2B`, → `BIN2`) |
 | `P2` | 2 | `IN3` | **PA10** (`PWM2A`, → `BIN1`) |
 | `P2` | 3 | `GND` | `GND` |
-| `P2` | 4 | `VCC` | **Ver el aviso de las dos `VCC`, abajo** |
+| `P2` | 4 | `VCC` = **`VM` del chip** | **Salida del boost (9 V)**. Es potencia, no lógica |
 | `P2` | 5 | `IN2` | **PA9** (`PWM1B`, → `AIN2`) |
 | `P2` | 6 | `IN1` | **PA8** (`PWM1A`, → `AIN1`) |
-| `P1` | 1 | `EEP` = **`nSLEEP`** | Sin conectar: el módulo lo sube con `R1` y lo puentea el *jumper* `en/sleep` de la cara inferior |
+| `P1` | 1 | `EEP` = **`nSLEEP`** | **Cableado al riel de 5 V** (step-down). Ver el aviso sobre el zener, abajo |
 | `P1` | 2 | `OUT1` | Motor **izquierdo**, borne + (`AOUT1`) |
 | `P1` | 3 | `OUT2` | Motor **izquierdo**, borne − (`AOUT2`) |
 | `P1` | 4 | `OUT3` | Motor **derecho**, borne + (`BOUT1`) |
 | `P1` | 5 | `OUT4` | Motor **derecho**, borne − (`BOUT2`) |
-| `P1` | 6 | `ULT` = **`nFAULT`** | Sin conectar (o con **10 kΩ a `3V3`** si se quiere leer) |
+| `P1` | 6 | `ULT` = **`nFAULT`** | Sin conectar. Si se quiere leer, **10 kΩ a `3V3`** y al **PA15** (el único GPIO libre del MCU) |
 
 ⚠️ El módulo **saca la potencia de motores por el pad `VCC`**, no por un borne aparte: en esta placa
 `VCC` = `VM` = salida del boost. Las salidas a los motores son `OUT1`–`OUT4`.
@@ -136,7 +136,63 @@ final el DRV8833 va **desnudo** en la placa.
 | `C2` entre **`VCP` y `VM`** | **10 nF** | ✅ el datasheet pide 0,01 µF / 16 V X7R |
 | `C1` en **`VINT`** a GND | **2,2 µF** | ✅ el datasheet pide 2,2 µF / 6,3 V cerámico |
 | `C3` en **`VM`** a GND | **10 µF** | ⚠️ poco para el caso de `Coast`: añadir **≥100 µF** externos, ver abajo |
-| `R1` de `VCC` a **`nSLEEP`** | **47 kΩ** | ✅ pull-up válido para `VM` > 6,5 V (53 µA, bajo el límite de 250 µA) |
+| `R1` de `VCC` a **`nSLEEP`** | **47 kΩ** | ✅ En el módulo original es el pull-up de *enable*. ⚠️ En nuestro montaje `nSLEEP` va al riel de 5 V, así que `R1` queda entre **9 V y 5 V**: una fuga de **(9−5)/47 k ≈ 85 µA** hacia el riel de 5 V (850 µA si `R1` fuese de 4,7 k). Inofensiva, pero el buck **no puede absorberla**: si algún día el riel de 5 V aparece alto **sin carga**, es esto |
+| `AISEN` / `BISEN` | a GND | ✅ sin sensado de corriente |
+| `nFAULT` | **sin pull-up** | ⚠️ expuesto en el conector y **flotando** |
+| LED de encendido | 4k7 + LED desde `VCC` | — |
+
+> [!NOTE] Cuánta capacidad hace falta en `VM`, con el número delante
+> La primera versión de este documento pedía **470 µF** «porque el boost no absorbe el frenado». Eso
+> era **alarmista**, y el propio datasheet del DRV8833 lo desmiente:
+>
+> | Modo | Entradas | Salidas | Adónde va la energía del motor |
+> |:--|:-:|:-:|:--|
+> | **Brake** (lo que hace `DRV8833_Brake()`) | `xIN1 = xIN2 = 1` | `L`–`L` | **Se queda en el motor**: los dos *low-side* lo cortocircuitan y la corriente circula por el bobinado. **No entra en `VM`** |
+> | **Coast** | `0`–`0` | `Z`–`Z` | Sale por los **diodos de cuerpo** hacia `VM` |
+> | PWM normal | conmutando | — | Rizado inductivo en cada flanco, de orden **mJ** |
+>
+> Con un `Brake` (que es lo que usa el firmware al parar), el motor **no** inyecta energía en el riel.
+> El caso que sí lo hace es `Coast` con el robot empujado, o soltar el motor en marcha.
+>
+> | Energía a absorber | En 22 µF | En 100 µF | En 470 µF |
+> |:--|--:|--:|--:|
+> | 0,15 mJ (un flanco de PWM) | +0,7 V | +0,15 V | +0,03 V |
+> | 4,5 mJ (robot de 100 g a 0,3 m/s, todo al riel) | +13 V | +2,8 V | +0,6 V |
+>
+> ⇒ **100 µF basta** para el caso realista; **220–470 µF** son seguro barato si caben. Lo que **no**
+> hay que hacer es fiarse solo de los **10 µF** del módulo en el caso de `Coast`.
+>
+> ✅ **Y el boost protege a la LiPo por construcción**: el diodo Schottky de salida bloquea el camino
+> inverso, así que **ningún pico del riel de 9 V llega a la batería**. Es un argumento a favor de
+> **D2 = boost** que no estaba en la tabla.
+
+⚠️ **`nFAULT`**: si se quiere leer, **10 kΩ a `3V3`** (es salida de avería en *open-drain*; el
+módulo lo saca al conector **sin** pull-up). Si no, dejar sin conectar. El firmware no lo lee hoy.
+
+✅ **Resuelto en hardware (2026-11-12), y probado en el robot**: el `VCC` del módulo va **directo
+a la salida del boost (9 V)** y ese es el `VM` del chip; el `nSLEEP` (`EEP`) va **soldado al riel de
+5 V** del step-down. Son dos nets distintas a propósito: **potencia a 9 V, lógica a 5 V**. Funciona.
+
+> [!NOTE] Por qué el zener de `nSLEEP` no es un problema aquí
+> `nSLEEP` lleva un zener interno que recorta a **6,5 V** y no admite más de **250 µA**. Con el pin a
+> **5 V** el zener **no llega a conducir**: la corriente se queda en `5 V / 500 kΩ` ≈ **10 µA**, y el
+> umbral de entrada es `V_IH` ≥ **2,5 V** ⇒ margen de 2,5 V. Correcto.
+>
+> De ahí sale la regla para la **V1**: `nSLEEP` puede ir a **`3V3`** (3,3 V > 2,5 V, con 800 mV de
+> margen) o quedarse en el riel de 5 V. Lo que **no** debe hacerse es atarlo al `VM` de 9 V sin una
+> resistencia que limite: ahí el zener sí conduce y hay que quedarse por debajo de 250 µA.
+
+#### Lo que lleva el módulo actual (esquema del *breakout*, 2026-11-12)
+
+El módulo es una aplicación de referencia del chip: sirve tal cual para copiar los pasivos si al
+final el DRV8833 va **desnudo** en la placa.
+
+| Componente | Valor | Veredicto |
+|:--|:--|:--|
+| `C2` entre **`VCP` y `VM`** | **10 nF** | ✅ el datasheet pide 0,01 µF / 16 V X7R |
+| `C1` en **`VINT`** a GND | **2,2 µF** | ✅ el datasheet pide 2,2 µF / 6,3 V cerámico |
+| `C3` en **`VM`** a GND | **10 µF** | ⚠️ poco para el caso de `Coast`: añadir **≥100 µF** externos, ver abajo |
+| `R1` de `VCC` a **`nSLEEP`** | **47 kΩ** | ✅ En el módulo original es el pull-up de *enable*. ⚠️ En nuestro montaje `nSLEEP` va al riel de 5 V, así que `R1` queda entre **9 V y 5 V**: una fuga de **(9−5)/47 k ≈ 85 µA** hacia el riel de 5 V (850 µA si `R1` fuese de 4,7 k). Inofensiva, pero el buck **no puede absorberla**: si algún día el riel de 5 V aparece alto **sin carga**, es esto |
 | `AISEN` / `BISEN` | a GND | ✅ sin sensado de corriente |
 | `nFAULT` | **sin pull-up** | ⚠️ expuesto en el conector y **flotando** |
 | LED de encendido | 4k7 + LED desde `VCC` | — |
