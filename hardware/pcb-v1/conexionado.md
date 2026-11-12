@@ -521,6 +521,11 @@ PC13–PC15, que es justo donde no se puede pedir corriente.
 | Un botón menos (4 → 3) | +1 | Cambia la UI |
 | El LED de `PC13` | +1 | Solo 3 mA, y el LED integrado de la placa no se puede quitar |
 
+> ✅ **La V1 no tiene que quitarle nada al prototipo**: el firmware de hoy **no usa** ni `PA15` ni
+> `PB2`. `PA15` no se configura en ningún sitio (`gpio.c` lo dice explícitamente) y `PB2` se deja como
+> entrada sin *pull* «BOOT1, no se usa como GPIO». Son justo los dos que la V1 necesita para `nSLEEP`
+> y `nFAULT`: el diseño cabe en los pines que ya existen.
+
 ⚠️ **`PC13`–`PC15` no son «pines libres disfrazados»**: el LED y dos botones van ahí porque eran los
 que quedaban, no porque sean buenos pines (PC13 aguanta 3 mA como salida).
 
