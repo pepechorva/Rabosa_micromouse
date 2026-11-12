@@ -18,7 +18,7 @@ conviene ponerle a la etiqueta en KiCad, para que la red sobreviva de una hoja a
 | # | Decisión | Opciones | Consecuencia |
 |:-:|:--|:--|:--|
 | **D1** | **¿Blue Pill como módulo, o STM32F103C8T6 desnudo?** | Módulo (zócalo o soldado) **vs** LQFP48 desnudo | ⏳ **Abierta a propósito**: depende de si el robot va a **una o dos alturas**, y eso lo decide el chasis nuevo. El desnudo obliga a añadir **cristal de 8 MHz + 2×22 pF**, **regulador 3,3 V propio**, **BOOT0/BOOT1 con resistencias** y desacoplo por pin; el módulo trae todo eso pero ocupa **1 192 mm²** (19 % de la placa) y sube ~11 mm con zócalo |
-| **D2** | **De dónde sale `VM` (motores)** | **Boost a 9 V** ✅ | Se mantiene como en el prototipo, para no perder velocidad punta. ⚠️ **Obliga** a un condensador de **470 µF** junto al driver: un boost no absorbe la energía del frenado y solo hay **2,8 V** de margen hasta el máximo absoluto del DRV8833 (11,8 V). El módulo del driver trae **10 µF**, que no bastan. Ver el aviso del bloque **A** |
+| **D2** | **De dónde sale `VM` (motores)** | **Boost a 9 V** ✅ | Se mantiene como en el prototipo, para no perder velocidad punta. ⚠️ Añadir **≥100 µF** junto al driver: el boost no absorbe energía y solo hay **2,8 V** de margen hasta el máximo absoluto del DRV8833 (11,8 V). ✅ Y a cambio **protege a la LiPo**, porque su diodo bloquea el camino inverso. Ver el bloque **A** |
 | **D3** | **Riel de los encoders** | **3,3 V** ✅ | A 5 V el nivel alto medido era **3,6 V** y el máximo absoluto de PA0/PA1/PA6/PA7 es **4,0 V** (pines `TTa`, sin `FT`): funcionaba, pero **al límite**. A 3,3 V queda holgado y el módulo lo admite (3,3–5 V) |
 | **D4** | **Riel de la OLED** | **5 V** ✅ | El módulo lleva su propio regulador: a 5 V regula bien. Los pull-ups del I2C van al **3,3 V** en cualquier caso |
 | **D5** | **¿El buck es MP2338?** | **Sí** ✅ | El **MP1584 está NRND** y su hoja de datos remite al MP2338 ([#13](https://github.com/pepechorva/Rabosa_micromouse/issues/13)). Se queda el riel de 5 V (**D3+D4**), así que el buck es de **5 V** |
@@ -46,7 +46,7 @@ conviene ponerle a la etiqueta en KiCad, para que la red sobreviva de una hoja a
 > riel a 9 V quedan **menos de 2 V** hasta el máximo absoluto del DRV8833 (11,8 V).
 >
 > Con **D2 = boost**, el único que puede tragarse ese pico es el condensador de entrada del driver, así
-> que **los 470 µF pasan de recomendación a requisito**. Si aparece un reinicio con el motor
+> que conviene **≥100 µF** junto al driver. Si aparece un reinicio con el motor
 > forzado, `>RESET:n` dice si fue tensión (1) o el pin `NRST` (2): si sale **1**, falta capacidad.
 >
 > ⚠️ Y el boost tiene que entregar **1,4 A a 9 V** (≈12,6 W, unos 1,9 A de entrada a 7,4 V): los
@@ -58,7 +58,7 @@ conviene ponerle a la etiqueta en KiCad, para que la red sobreviva de una hoja a
 
 | Condensador | Dónde | Para qué |
 |:--|:--|:--|
-| **470 µF** electrolítico + **100 nF** cerámico | Entre `VM` y `GND`, **junto al DRV8833** | Absorber la energía inductiva al frenar o bloquear. **Con D2 = boost es obligatorio**, no una mejora |
+| **≥100 µF** electrolítico (220–470 si cabe) + **100 nF** cerámico | Entre `VM` y `GND`, **junto al DRV8833** | Absorber el rizado inductivo y el caso de `Coast` (en `Brake` la energía se queda en el motor). Con D2 = boost, el boost no puede tragarla |
 | **100 nF** | **`NRST` → GND**, junto al pin | Filtrar el ruido que dispara reset |
 | **100 nF** | En los **bornes** de cada motor | Ruido de escobillas |
 
@@ -116,15 +116,15 @@ llamado `VCC`: alimenta sus pull-ups y su LED, **no** el chip.
 | `P2` | 4 | `VCC` | **Ver el aviso de las dos `VCC`, abajo** |
 | `P2` | 5 | `IN2` | **PA9** (`PWM1B`, → `AIN2`) |
 | `P2` | 6 | `IN1` | **PA8** (`PWM1A`, → `AIN1`) |
-| `P1` | 1 | `SLEEP` | Sin conectar (el módulo ya lo sube con `R1`) |
+| `P1` | 1 | `EEP` = **`nSLEEP`** | Sin conectar: el módulo lo sube con `R1` y lo puentea el *jumper* `en/sleep` de la cara inferior |
 | `P1` | 2 | `OUT1` | Motor **izquierdo**, borne + (`AOUT1`) |
 | `P1` | 3 | `OUT2` | Motor **izquierdo**, borne − (`AOUT2`) |
 | `P1` | 4 | `OUT3` | Motor **derecho**, borne + (`BOUT1`) |
 | `P1` | 5 | `OUT4` | Motor **derecho**, borne − (`BOUT2`) |
-| `P1` | 6 | `FAULT` | Sin conectar (o con **10 kΩ a `3V3`** si se quiere leer) |
+| `P1` | 6 | `ULT` = **`nFAULT`** | Sin conectar (o con **10 kΩ a `3V3`** si se quiere leer) |
 
-⚠️ El módulo **no lleva** los bornes de alimentación de motores en `P1`/`P2`: el `VM` entra por el
-`VCC` de la izquierda del dibujo. Comprobar con el polímetro antes de cablear.
+⚠️ El módulo **saca la potencia de motores por el pad `VCC`**, no por un borne aparte: en esta placa
+`VCC` = `VM` = salida del boost. Las salidas a los motores son `OUT1`–`OUT4`.
 
 #### Lo que lleva el módulo actual (esquema del *breakout*, 2026-11-12)
 
@@ -135,37 +135,58 @@ final el DRV8833 va **desnudo** en la placa.
 |:--|:--|:--|
 | `C2` entre **`VCP` y `VM`** | **10 nF** | ✅ el datasheet pide 0,01 µF / 16 V X7R |
 | `C1` en **`VINT`** a GND | **2,2 µF** | ✅ el datasheet pide 2,2 µF / 6,3 V cerámico |
-| `C3` en **`VM`** a GND | **10 µF** | ⚠️ **insuficiente**, ver abajo |
+| `C3` en **`VM`** a GND | **10 µF** | ⚠️ poco para el caso de `Coast`: añadir **≥100 µF** externos, ver abajo |
 | `R1` de `VCC` a **`nSLEEP`** | **47 kΩ** | ✅ pull-up válido para `VM` > 6,5 V (53 µA, bajo el límite de 250 µA) |
 | `AISEN` / `BISEN` | a GND | ✅ sin sensado de corriente |
 | `nFAULT` | **sin pull-up** | ⚠️ expuesto en el conector y **flotando** |
 | LED de encendido | 4k7 + LED desde `VCC` | — |
 
-> [!WARNING] El condensador de `VM` del módulo **no basta** para nuestro caso
-> El módulo trae **10 µF**, pensados para una fuente que **sí absorbe** la energía del frenado. Con
-> **D2 = boost** el condensador es el único que puede tragársela: `ΔV = I·t/C`, con 0,7 A de frenado
-> y el riel a 9 V (máximo absoluto 11,8 V ⇒ **2,8 V de margen**).
+> [!NOTE] Cuánta capacidad hace falta en `VM`, con el número delante
+> La primera versión de este documento pedía **470 µF** «porque el boost no absorbe el frenado». Eso
+> era **alarmista**, y el propio datasheet del DRV8833 lo desmiente:
 >
-> | Capacidad | 100 µs | 1 ms |
-> |--:|--:|--:|
-> | **10 µF** (módulo) | **+7 V** | +70 V |
-> | 100 µF | +0,7 V | +7 V |
-> | **470 µF** | +0,15 V | **+1,5 V** |
+> | Modo | Entradas | Salidas | Adónde va la energía del motor |
+> |:--|:-:|:-:|:--|
+> | **Brake** (lo que hace `DRV8833_Brake()`) | `xIN1 = xIN2 = 1` | `L`–`L` | **Se queda en el motor**: los dos *low-side* lo cortocircuitan y la corriente circula por el bobinado. **No entra en `VM`** |
+> | **Coast** | `0`–`0` | `Z`–`Z` | Sale por los **diodos de cuerpo** hacia `VM` |
+> | PWM normal | conmutando | — | Rizado inductivo en cada flanco, de orden **mJ** |
 >
-> ⇒ **470 µF** electrolítico en paralelo con `VM`/GND, más **100 nF** cerámico pegado. No hay que
-> modificar el módulo: se suelda entre sus pines de alimentación (si va desnudo, es `C4` en la placa).
+> Con un `Brake` (que es lo que usa el firmware al parar), el motor **no** inyecta energía en el riel.
+> El caso que sí lo hace es `Coast` con el robot empujado, o soltar el motor en marcha.
+>
+> | Energía a absorber | En 22 µF | En 100 µF | En 470 µF |
+> |:--|--:|--:|--:|
+> | 0,15 mJ (un flanco de PWM) | +0,7 V | +0,15 V | +0,03 V |
+> | 4,5 mJ (robot de 100 g a 0,3 m/s, todo al riel) | +13 V | +2,8 V | +0,6 V |
+>
+> ⇒ **100 µF basta** para el caso realista; **220–470 µF** son seguro barato si caben. Lo que **no**
+> hay que hacer es fiarse solo de los **10 µF** del módulo en el caso de `Coast`.
+>
+> ✅ **Y el boost protege a la LiPo por construcción**: el diodo Schottky de salida bloquea el camino
+> inverso, así que **ningún pico del riel de 9 V llega a la batería**. Es un argumento a favor de
+> **D2 = boost** que no estaba en la tabla.
 
 ⚠️ **`nFAULT`**: si se quiere leer, **10 kΩ a `3V3`** (es salida de avería en *open-drain*; el
 módulo lo saca al conector **sin** pull-up). Si no, dejar sin conectar. El firmware no lo lee hoy.
 
-⚠️ **Hay dos redes llamadas `VCC` en el módulo y no son necesariamente la misma**: el dibujo lleva el
-`VCC` de la izquierda a **`VM`** (pin 12 del chip) y el de la derecha a **`P2` pin 4**, que alimenta
-el LED y el pull-up `R1` de `nSLEEP`. **Comprobarlo con el polímetro** (continuidad entre `P2`-4 y
-`U1`-12):
+✅ **Resuelto (2026-11-12): hay una sola red `VCC` en el módulo, y es la salida del boost.**
+La confusión venía del esquema de referencia, que rotula «VCC» en dos sitios distintos del dibujo
+(el pad de `VM` y el pin 4 del conector de entradas). En la placa real **solo existe el `VCC` de la
+fila de entradas**, y de ahí sale también el `VM` del chip. No hay que alimentar nada a 3,3 V en el
+módulo, y `nSLEEP` no queda flotante: lo sube `R1` y lo fuerza el *jumper* `en/sleep`.
 
-| Si son la misma red | Si son distintas |
-|:--|:--|
-| `VCC` = riel de motores; `P2`-4 se alimenta del **9 V** (o no se conecta) | `P2`-4 **hay que llevarlo a `3V3`**: si flota, `nSLEEP` se queda a 0 por su pull-down interno de 500 kΩ y **el driver no sale de *sleep*** |
+> [!WARNING] Comprobar el valor de `R1` si el `VCC` va a 9 V
+> El *jumper* `en/sleep` une `nSLEEP` con `VCC` a través de `R1`. El datasheet avisa: `nSLEEP` lleva
+> un **zener interno que lo recorta a 6,5 V** y no admite más de **250 µA**.
+>
+> | `R1` | Corriente a `VCC` = 9 V | Veredicto |
+> |--:|--:|:--|
+> | **47 kΩ** | **53 µA** | ✅ correcto |
+> | **4,7 kΩ** | **532 µA** | ⚠️ **2× por encima del límite**: comprobar el valor real |
+>
+> En la foto de la placa se lee `472` (= 4,7 kΩ) donde el esquema de referencia pone 47 kΩ. **Medir
+> `R1` con el polímetro** antes de dar el módulo por bueno a 9 V; si es de 4,7 kΩ, sustituirlo o
+> alimentar `VCC` a 5 V.
 
 ---
 
