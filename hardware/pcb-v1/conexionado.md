@@ -63,20 +63,20 @@ El prototipo **no tiene ninguna**: la LiPo va directa al boost y al buck. La V1 
 | Amenaza | Qué pasa | Qué la tapa |
 |:--|:--|:--|
 | **Corto** en la placa o el cableado | El pack puede dar **≈36 A** teóricos (450 mAh × 80C): la pista hace de fusible y el PLA del chasis se funde | **PTC** en serie con `VBAT` |
-| **Polaridad inversa** | Se destruyen el boost, el buck y el driver a la vez | **P-MOSFET** en serie (o confiar en el JST, que va con llave) |
+| **Polaridad inversa** | Se destruyen el boost, el buck y el driver a la vez | ✅ **Resuelto sin componentes**: el **JST XH va con llave** y no admite la conexión al revés. **No se pone P-MOSFET** (2026-11-12) |
 | **Descarga profunda** | La celda baja de 3,0 V y se degrada | Aquí **sí hay protección**: `BAT_CRIT_PACK` en el firmware frena y avisa |
 
 | Elemento | Valor propuesto | Coste en tensión / calor | Veredicto |
 |:--|:--|:--|:--|
-| **PTC** (polifusible rearmable) | Retención **2,6 A**, disparo 5,2 A, **1812**, ≈40 mΩ | 0,08 V y 160 mW a 2 A | ✅ **Sí**: rearmable, y tolera el pico de carga de los condensadores al enchufar |
-| **P-MOSFET en serie** | `V_DS` ≥ 20 V, `R_DS(on)` bajo. Un AO3401A (≈60 mΩ) da 0,12 V y 240 mW a 2 A ⇒ **calienta**; uno de <30 mΩ lo parte por la mitad | 40–120 mV | ⚠️ **Opcional**: el JST XH va con llave. Si se pone, elegir uno de baja `R_DS(on)` |
+| **PTC** (polifusible rearmable) | Retención **2,6 A**, disparo 5,2 A, **1812**, ≈40 mΩ | 0,08 V y 160 mW a 2 A | ⏳ **En estudio** (2026-11-12). Ventaja: rearmable y tolera el *inrush* de los condensadores |
+| ~~P-MOSFET en serie~~ | — | — | ❌ **Descartado**: el JST XH con llave ya impide la inversión. Para el caso aislado de un cable mal crimpado, no compensa 240 mW de pérdida |
 | Fusible rápido | 2 A | 0 | ❌ Se funde a mitad de competición, y el pico de *inrush* de los condensadores puede dispararlo sin avería |
 
 **Orden recomendado en la entrada:**
 
 ```
-JST XH-2 ──► [ PTC 2,6 A ] ──► [ interruptor ] ──► VBAT ──┬── boost ──► 9 V
-                                                          └── buck  ──► 5 V
+JST XH-2 ──► [ PTC, si se pone ] ──► [ interruptor ] ──► VBAT ──┬── boost ──► 9 V
+                                                                 └── buck  ──► 5 V
 ```
 
 ⚠️ **El PTC va antes del interruptor**, para que también proteja el interruptor y el cableado interno.
@@ -86,9 +86,47 @@ hilo central del balance, así que hay **dos conectores** de batería en la plac
 lleva protección y sus pines quedan al aire: si se cruza con el de potencia, hay corto directo.
 Separarlos físicamente en el layout, y que el de potencia sea el que esté junto al PTC.
 
-**Descarga profunda**: el firmware ya la cubre (`BAT_CRIT_PACK` = 6,00 V ⇒ `FAULT`), pero solo
-mientras el MCU esté vivo. Con el interruptor apagado, el boost y el buck se apagan por su propio
-`UVLO` (≈2 V en el MT3608), que **no** protege una LiPo. No dejar el robot conectado días.
+**Descarga profunda**: se controla **por firmware** (decisión 2026-11-12). Ver el apartado siguiente.
+
+#### Batería baja: qué apaga el firmware, y hasta dónde puede
+
+Política decidida: con la batería demasiado baja **no funcionan ni los motores ni los LEDs, solo la
+pantalla OLED**. Lo que ya hace el firmware hoy: `BAT_V_AVISO_PACK` = **6,60 V** avisa, y
+`BAT_V_CRIT_PACK` = **6,00 V** lleva a `FAULT` (frena, parpadea el LED y avisa por pantalla), que se
+abandona con **OK** y no se reintenta hasta que la medida se recupere.
+
+⚠️ **La ventana «solo OLED» es estrecha, y no por el firmware: por el hardware.**
+
+El MCU **cuelga del riel de 5 V**, que sale del buck desde `VBAT`. Y un buck **no puede dar 5 V con
+5 V de entrada**: el MP2338 necesita del orden de **4,5–5,5 V** en la entrada para regular. Así que:
+
+| `VBAT` | Qué sigue vivo |
+|:--|:--|
+| > 6,6 V | todo (`OK`) |
+| 6,0–6,6 V | todo, con aviso (`AVISO`) |
+| **6,0 V → ~5,5 V** | **motores cortados, OLED encendida** ← la ventana que se quiere |
+| < ~5,5 V | **se cae el riel de 5 V: se apaga también la OLED** (la pantalla la maneja el MCU, que es el que necesita 3,3 V de ese riel) |
+
+⇒ El umbral de **6,00 V no es arbitrario: está justo donde el buck empieza a fallar**, o sea que la
+pantalla se apaga en cuanto el pack baja un poco más. Sirve para decir «recarga», no para quedarse
+mirando. Si algún día hiciera falta una ventana larga habría que **buck-boost** en vez de buck; hoy
+no compensa.
+
+**Qué LEDs se pueden apagar de verdad:**
+
+| LED | ¿Lo apaga el firmware? |
+|:--|:--|
+| Onboard `PC13` | ✅ sí (GPIO) |
+| **Verde del módulo** (`R2` + `LED1` sobre `VCC` = 9 V) | ❌ **no**: está cableado al riel de motores. Luce mientras el boost esté vivo |
+| **Rojo de `nFAULT`** | ✅ **solo**: al dormir el driver (`nSLEEP` = 0) `nFAULT` queda en alta impedancia y el LED se apaga |
+
+⇒ **El verde del módulo se quedará encendido** aunque el firmware corte lo demás: es el único LED que
+contradice la política, y no hay forma de evitarlo sin cortar el boost.
+
+⚠️ **Cortar por debajo de 6,0 V con los motores en marcha puede dar un falso positivo**: el pack
+cede 0,3–0,5 V en un arranque. La medida ya es media de 16 muestras, pero el umbral conviene
+aplicarlo sobre el valor **en reposo** (o con una confirmación de unos cientos de ms), o el robot se
+parará solo en mitad de una aceleración con la batería sana.
 
 **Desacoplo obligatorio** (de `hardware.md` §4.6, tras los reinicios del 30-sep):
 
@@ -645,8 +683,8 @@ Para que las etiquetas sobrevivan entre hojas del esquemático:
   junto con la decisión de una o dos alturas.
 - **La forma de la placa**: el contorno sale del **FreeCAD del chasis**, que se va a rehacer a mano
   (el `chasis-v1.py` y su DXF no se usan).
-- **El interruptor de encendido**: no existe en el prototipo ni en su BOM. Hay que decidir tipo,
-  posición y si corta solo `VBAT` o también el conector de balance.
+- **El interruptor de encendido**: ✅ **decidido que se pone** (2026-11-12). Falta el tipo, la
+  posición (accesible sin desmontar) y si corta solo `VBAT` o también el conector de balance.
 - **El modelo concreto de boost** (≥2 A de salida) y la disponibilidad del MP2338.
 - **Conectores de motores**, pads de SWD/UART y test points.
 - **Los conectores**: JST XH para batería y motores es el candidato (hay hoja de datos en
