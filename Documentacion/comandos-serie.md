@@ -29,13 +29,16 @@ respuesta del motor) y la **20** (movimientos, con la orden `MOV`).
 | `BAT <UMBRAL> <valor>` | Cambia un umbral y publica los valores |
 | `BAT CAL <valor>` | **Calibra el divisor**: le dice al firmware cuál es la tensión REAL del pack ahora mismo |
 | `PID LIST` | Publica las ganancias y la consigna del lazo de velocidad (prueba 18) |
-| `PID KP\|KI\|KD <valor>` | Cambia una ganancia **con el lazo corriendo** |
+| `PID KP\|KI\|KD <valor> [IZQ\|DER]` | Cambia una ganancia **con el lazo corriendo**; sin rueda, en las dos |
 | `PID VEL <mm/s>` | Cambia la consigna de velocidad de la prueba 18 |
 | `GYRO [LIST]` | Publica la **referencia y las siete ganancias del lazo de giro** |
 | `GYRO ODOM\|GIRO\|FUSION` | Elige con qué se cierra el **giro**: odometría, giroscopio o la media de los dos |
 | `GYRO KP\|KI\|KD\|ESC\|VMIN\|VARR\|VDPS <valor>` | Cambia una ganancia del giro **sin reflashear** |
 | `MOV OK\|UP\|DOWN [n]` | Lanza `n` movimientos en la **prueba 20** (primitivas de `app/motion.c`): celda de 180 mm o giros de 90° |
 | `TRACE` | Vuelca la **traza en RAM** del lazo por telemetría (`>TR_SET`, `>TR_IZQ`, `>TR_DER`, `>TR_FIN`) |
+| `LAZO` | Publica los **tiempos medidos** del lazo, de la OLED y de la UART, y reinicia sus máximos |
+| `TEST <etiqueta>` | **Lanza una prueba del banco** por su nombre del menú (`TEST SINTONIA`) |
+| `SALIR` o `MENU` | Sale de la prueba en curso, igual que el botón MENU |
 | `LED <0\|1>` o `LED TOGGLE` | Enciende, apaga o conmuta el **LED de la placa** (PC13) y publica `>LED` |
 
 `HELP` no imprime una ayuda de texto: **toda la telemetría es numérica** (decisión del 30-sep), así que
@@ -150,8 +153,16 @@ ambigüedad de unidades de la batería, porque no son tensiones.
 | `KD` | 0.00 | 0 … 5 | %·s/(mm/s) |
 | `VEL` | `300` | 0 … 1000 | mm/s |
 
-Los valores por defecto son los **medidos en el robot el 2026-10-01** (ver
-[control-pid.md](./control-pid.md) §4): dan un **0,5 % de error de régimen**.
+Las ganancias son **una por rueda**: `PID KP 0.12 DER` toca **solo** la derecha y `PID KP 0.10` las
+dos. Los valores por defecto son los **medidos en el robot** (ver
+[control-pid.md](./control-pid.md) §4): dan un **0,15 % de error de régimen** a 300 mm/s.
+
+> [!NOTE] Por qué hay una ganancia por rueda, si hoy valen lo mismo
+> Los dos N20 no tienen por qué ser iguales, así que la estructura está puesta desde el 11-oct.
+> **Medido con las ruedas en el aire, estos dos motores piden el mismo duty para la misma velocidad
+dentro del ruido** (0,2-0,5 σ a 80 y a 300 mm/s), así que hoy las dos ruedas llevan los mismos
+> valores. Los números, y lo que esa medida **no** cubre (la carga), están en
+> [control-pid.md](./control-pid.md) §4.
 
 Funciona **de las dos maneras**: se puede dejar puesta la ganancia antes de entrar en la prueba (se
 aplica al arrancar) o cambiarla **mientras corre** (se aplica en el paso siguiente del lazo, a
@@ -164,9 +175,10 @@ observación en curso.
 > `PID_Reset()`, y aun así **conviene comprobarlo**: si al poner las tres ganancias a cero el duty no
 > se va a 0, algo se ha quedado cargado (pasó el 2026-10-01).
 
-Con cada cambio se publican `>PID_KP`, `>PID_KI`, `>PID_KD` y `>PID_VEL` —las mismas etiquetas que
-manda la prueba al arrancar— para que el registro de Teleplot diga con qué ganancias se hizo cada
-tramo.
+Con cada cambio se publican las **seis ganancias y la consigna** —`>PID_KP_I`, `>PID_KP_D`, `>PID_KI_I`,
+`>PID_KI_D`, `>PID_KD_I`, `>PID_KD_D` y `>PID_VEL`—, las mismas etiquetas que manda la prueba al
+arrancar, para que el registro de Teleplot diga con qué ganancias se hizo cada tramo. **Una etiqueta
+por rueda**: con ganancias por rueda, `PID_KP` a secas ya no identificaría nada.
 
 > ⚠️ **No se guarda en Flash**: al reiniciar vuelven los valores de `PID_TEST_*_DEF`
 > (`app/application.c`).
@@ -184,7 +196,7 @@ ni comparar. Con esta orden se cambia un número y se repite la maniobra en segu
 | `GYRO KP <mm/s por °>` | Proporcional al error de ángulo | 4,0 |
 | `GYRO KI <mm/s por (°·s)>` | Integral, con anti-windup a 30 mm/s | 0,0 |
 | `GYRO KD <mm/s por °/s>` | Amortiguación (frena según la velocidad angular) | 0,3 |
-| `GYRO ESC <adimensional>` | **Escala del giroscopio** | 1,20 |
+| `GYRO ESC <adimensional>` | **Escala del giroscopio** | 1,01 |
 | `GYRO VMIN <mm/s>` | Mínimo de velocidad **con el robot girando** | 35,0 |
 | `GYRO VARR <mm/s>` | Mínimo de velocidad **para arrancar del todo** | 40,0 |
 | `GYRO VDPS <°/s>` | A partir de qué velocidad se considera que «ya rueda» | 0,0 |
@@ -192,9 +204,11 @@ ni comparar. Con esta orden se cambia un número y se repite la maniobra en segu
 Contesta con `>GYR_KP`, `>GYR_KI`, `>GYR_KD`, `>GYR_ESC`, `>GYR_VMIN`, `>GYR_VARR`, `>GYR_VDPS` y
 `>GYRO_MODO`. Valor fuera de rango: `>CMD_ERR:3`. Parámetro desconocido: `>CMD_ERR:1`.
 
-> ✅ **Los siete valores medidos el 2026-10-02 están fijados en `app/motion.h`**, así que **un reinicio
-> no los pierde** — a diferencia de `PID`, que vuelve a sus `_DEF` al arrancar. La orden los cambia en
-> RAM, pero el punto de partida ya es el bueno.
+> ✅ **Los siete valores están fijados en `app/motion.h`**, así que **un reinicio no los pierde** — a
+> diferencia de `PID`, que vuelve a sus `_DEF` al arrancar. La orden los cambia en RAM, pero el punto de
+> partida ya es el bueno. Se midieron el **2026-10-02** (lazo, amortiguación y mínimos) y la **escala el
+> 2026-10-11**, que pasó de 1,20 a **1,01** al comprobarla contra una marca en el suelo: el detalle está en
+> [pruebas-bringup.md §16](./pruebas-bringup.md).
 
 #### Cómo se diagnostica con estos números
 
@@ -287,6 +301,98 @@ sin escalar nada.
 
 > [!TIP] Lo normal es no necesitar la traza: la prueba 18 **mide `Tu` ella sola** y lo enseña en la
 > pantalla (`SET 300 TU 0.42`). La traza es para cuando quieras **ver la forma** de la respuesta.
+
+---
+
+### Guionizar el banco desde el PC (`TEST` y `SALIR`)
+
+`TEST <etiqueta>` lanza una prueba del banco **por su nombre del menú**, y `SALIR` sale de ella como
+si se hubiera pulsado MENU. Juntas convierten el banco en algo **guionizable desde el PC**: lanzar,
+leer la respuesta con marca de tiempo, cambiar una ganancia con `PID KP …` y volver a lanzar. Es lo
+que hace posible sintonizar las dos ruedas una detrás de otra.
+
+| Orden | Qué hace | Respuesta |
+|:--|:--|:--|
+| `TEST SINTONIA` | Lanza la prueba 18 (PID) | `>CMD_TEST:1`, luego `>APP_TEST:1` y `>APP_TEST_REM:1` |
+| `TEST MOVIMIENTO` | Lanza la prueba 20 (primitivas) | igual |
+| `SALIR` | Sale de la prueba en curso, como el botón MENU | `>CMD_SALIR:1` |
+
+⚠️ **Lanzar una prueba puede arrancar motores**, y desde el PC no se ve el robot ⇒ las pruebas se
+hacen **con las ruedas en el aire**.
+
+Tres matices que conviene conocer:
+
+1. **Solo desde el menú.** Con una prueba en curso, `TEST` se rechaza con `>CMD_ERR:3`: primero
+   `SALIR`. Saltar de una prueba a otra sin salir dejaría vivos los motores de la anterior.
+2. **`SALIR` solo se lee donde se lee la consola.** Las pruebas que no llaman a `CONSOLE_Update()` en
+   su bucle (todas menos la 12, la 18, la 20 y la 24) no se enteran hasta que terminan solas.
+3. **La etiqueta es la del menú**, no el número de prueba: `TEST SINTONIA`, no `TEST 18`. Se busca en
+   todas las tablas de submenú una fila de tipo `LANZAR` con ese nombre.
+
+> [!WARNING] **`SALIR` estuvo sin funcionar desde que se escribió hasta el 2026-10-11**, y merece la
+> pena saber por qué: `BUTTONS_SolicitarSalida()` llamaba a `GPIO_MenuBtnIRQ_Handler()`, que despacha
+> por `HAL_GPIO_EXTI_IRQHandler()` — y esa función **solo llama al callback si el flag de EXTI está
+> puesto**, cosa que en una orden de consola no ocurre porque **no hay flanco**. El contador no subía:
+> la orden llegaba, la consola acusaba `>CMD_SALIR:1` y el robot seguía. Ahora existe
+> `GPIO_MenuBtnIRQ_Solicitar()`, que llama al callback directamente.
+> 📌 **Lección**: la rutina de servicio de una interrupción **atiende** un flanco; no sirve para
+> **inventarlo**.
+
+> [!TIP] Por qué esto vive en la consola y no emulando los botones
+> El `IDR` de un GPIO en STM32 es de **solo lectura**, así que falsificar OK/UP/DOWN desde el
+depurador obligaría a reconfigurar el pin como salida —invasivo, y con el botón muerto hasta
+> reiniciar—. Y escribir el estado de la FSM en RAM funciona, pero **las direcciones cambian en cada
+> compilación**: medido el 2026-10-11, `tramo_maximo` se movió al añadir código y una lectura con la
+> dirección vieja devolvió valores desplazados que parecían buenos. Una orden de consola no depende de
+> nada de eso, y además sirve para cualquiera.
+
+> [!NOTE] La vía buena para trabajar es el **cable serie**, no el puente WiFi
+> El puente es cómodo para ver telemetría, pero **suele caerse con cada reflasheo**: al resetear el MCU
+> el ESP sale del modo transparente y el socket que queda en el PC es un zombi, así que hay que volver
+> a entrar en `TELEMETRIA → PUENTE WIFI` con los botones. El cable no: aguanta el reflasheo, así que
+> permite iterar (grabar → lanzar → medir → cambiar una ganancia → repetir) sin tocar el robot.
+>
+> ✅ **Pero no es una ley, y comprobarlo cuesta dos segundos.** El socket TCP vive en el **ESP**, que
+> es **otro chip**: si solo se resetea el STM32, el socket **sigue abierto** y la telemetría sigue
+> llegando. Medido el 2026-10-11 en varios flasheos: cuando sobrevive se ven las líneas de arranque
+> (`>RESET:n`, `>BOOT:1`, `>APP_EST:1`) sin tocar nada. **Antes de rehacer el puente, mira si llega
+> telemetría.**
+
+### Medir el retardo del lazo (`LAZO`)
+
+Publica los tiempos medidos **en microsegundos** y reinicia los máximos:
+
+| Etiqueta | Qué mide |
+|:--|:--|
+| `>LAZO_US` / `>LAZO_MAX` | Una vuelta del lazo: el trabajo **más** la espera hasta la siguiente |
+| `>OLED_US` / `>OLED_MAX` | Un `OLED_Update()`: los 512 B del framebuffer por I²C |
+| `>UART_US` / `>UART_MAX` | Una línea de telemetría por la UART |
+
+`_US` es el último tramo cerrado; **`_MAX` es el número que importa**, porque esto no es un valor fijo
+son **picos**. El cronómetro es el **TIM4** (`hal/timers.c`, 2 µs por cuenta) y los máximos se ponen a
+cero **al lanzar una prueba**, así que la lectura habla de la prueba que acabas de hacer.
+
+> [!IMPORTANT] Por qué se pide y no se publica solo
+> Medir el lazo **no puede costar telemetría dentro del lazo**: esas seis líneas son ~100 B por la
+> UART, o sea ~9 ms de bus, que serían justo el retardo que se está midiendo. Por eso la orden se pide
+a mano, y el volcado se hace **antes** de reiniciar los máximos.
+
+Qué esperar, y qué significa cada número:
+
+| Tramo | Valor normal | Si sale mucho más alto |
+|:--|:--|:--|
+| `LAZO_MAX` | ≈ `MOTION_PASO_MS` + 1-2 ms de trabajo | Hay algo **bloqueando** dentro de la vuelta: mira `OLED_MAX` y `UART_MAX` |
+| `OLED_MAX` | ~47 000 µs (≈47 ms) | Es el bus I²C a 100 kHz; con `I2C1_CLOCK_HZ` a 400 000 baja a ~12 ms |
+| `UART_MAX` | ~1 500 µs (una línea de 17 B) | Un volcado de la traza manda muchas líneas seguidas |
+
+⚠️ El contador de TIM4 es de **16 bits** y da la vuelta cada **131 ms**, así que un tramo más largo que
+eso **no se puede medir** con él (saldría un número pequeño y falso). No es un problema para lo que hay
+—el peor caso conocido ronda los 65 ms—, pero conviene saberlo antes de dar por bueno un valor raro.
+
+📌 **Y ojo con la cadencia del banco**: en la prueba 18 la pantalla se repinta cada 200 ms y cuesta
+~47 ms, así que el lazo se queda ciego **una cuarta parte del tiempo mientras estás juzgando `Kp`**.
+La misión (`app/motion.c`, `app/wall_follower.c`) **no toca la OLED**, así que allí ese agujero no
+existe: las ganancias que salgan del banco son **conservadoras** para la misión.
 
 ---
 

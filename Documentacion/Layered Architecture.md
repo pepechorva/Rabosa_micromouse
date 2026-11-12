@@ -10,8 +10,16 @@ tags:
 # Layered Architecture (Arquitectura por Capas)
 
 > [!INFO] Regla de aislamiento
-> **Cada capa solo se comunica directamente con la capa inferior.**
-> *Ejemplo:* ¿Cambias la IMU del hardware? Únicamente se modifica `imu.c`.
+> **La lógica de misión (`core/`, junto con `control/` y `filter/`) no puede tocar `drivers/`,
+> `sensor/`, `hal/` ni `hw/`.** Habla con el mundo por el contrato `core/core_io.h`, y quien
+> lo implementa es `drivers/`.
+> *Ejemplo:* ¿Cambias la IMU del hardware? Se toca el driver y nada más.
+>
+> ⚠️ **`app/` es la excepción deliberada**: es interfaz y banco (menú, botones, OLED,
+> telemetría y las pruebas de banco), y **sí puede tocar `hal/` y `sensor/`** — arrancar los
+> periféricos, encender el LED, leer el reloj—. Lo que no puede es tener lógica de misión.
+> Medido el 2026-10-10: `core` + `control` + `filter` = **0 símbolos de la HAL**; `app/`, 14.
+> Ver [auditoria-capas.md](./auditoria-capas.md).
 
 ---
 

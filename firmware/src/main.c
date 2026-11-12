@@ -12,6 +12,7 @@
 #include "hal/systemclock.h"
 #include "hal/gpio.h"
 #include "hal/uart.h"
+#include "app/control_loop.h"
 
 int main(void)
 {
@@ -61,6 +62,18 @@ void EXTI15_10_IRQHandler(void)
 void USART3_IRQHandler(void)
 {
     UART_RxIRQHandler();
+}
+
+/**
+ * @brief Interrupción de actualización de TIM1: el paso del lazo de control.
+ *
+ * Corre **una vez por período de PWM** (999 Hz) y es lo que **adelanta al bucle principal**: la
+ * pantalla y la telemetría pueden tardar lo que quieran, que el robot sigue regulando. El trabajo lo
+ * hace `app/control_loop.c`, y el porqué está en `Documentacion/lazo-control.md`.
+ */
+void TIM1_UP_IRQHandler(void)
+{
+    LOOP_IrqHandler();
 }
 
 /**

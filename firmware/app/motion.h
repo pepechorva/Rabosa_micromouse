@@ -55,8 +55,25 @@
  */
 #define MOTION_FRENADA_MM        0.0f
 
-/** @brief Tolerancia del ángulo girado [°]. */
-#define MOTION_TOL_GRADOS        1.5f
+/**
+ * @brief Tolerancia del ángulo girado [°].
+ *
+ * ⚠️ **Estaba en 1,5 y era el error dominante del giro**, no el rozamiento ni el sensor. Medido el
+ * 2026-10-11 con `MOV UP 4` (360° pedidos) y la escala del giroscopio ya corregida: el lazo suelta
+ * **siempre** al rozar el borde de la banda, o sea a **88,55°** ⇒ **1,45° corto por esquina**, que son
+ * los **−5,8° de `>MOV_E_ANG`** al cerrar la vuelta entera. El usuario lo confirmó a ojo contra la
+ * marca de la mesa («unos 5°»).
+ *
+ * Un lazo que suelta «cuando le queda poco» tiene un sesgo **sistemático** del tamaño de esa banda, y
+ * en un laberinto se acumula esquina a esquina. Bajarla a 0,5° deja el presupuesto de un giro en
+ * ~1,1° (0,5 de banda + ~1,0 de retardo), frente a los ~2,5° que daba 1,5.
+ *
+ * @warning El lazo resuelve 0,5° de sobra a la velocidad mínima de giro (35 mm/s son ~52 °/s ⇒ 0,05°
+ *          por vuelta de 1 ms), pero **bajar la tolerancia alarga el tramo final**: si algún día el
+ *          giro no llega a converger o empieza a rebotar en el borde de la banda, este es el número
+ *          que hay que devolver hacia arriba.
+ */
+#define MOTION_TOL_GRADOS        0.5f
 
 /** @brief Velocidad mínima de giro [mm/s]: por debajo de esto el motor no vence la fricción estática. */
 #define MOTION_GIRO_VEL_MIN_MM_S 40.0f
@@ -276,6 +293,10 @@
  * movimientos bajó a ≈−1 °/s ⇒ un filtro lento iba **persiguiendo** un blanco que se mueve. La muestra
  * del asentamiento es buena (robot frenado y solo la segunda mitad), así que se toma tal cual: así el
  * sesgo **sigue** la deriva en vez de quedarse atrás.
+ *
+ * @warning **Que la muestra sea buena lo garantiza `MOTION_GYRO_REFINAR_DISP_MAX`, no este peso.** El
+ *          2026-10-11 se midió que «frenado» no es «quieto»: sin la puerta de dispersión el sesgo se
+ *          contaminaba **+0,6 °/s por giro**.
  */
 #define MOTION_GYRO_REFINAR_ALFA 1.0f
 
@@ -283,51 +304,71 @@
 #define MOTION_GYRO_REFINAR_MIN 8U
 
 /**
+ * @brief Dispersión máxima del asentamiento para creerse su media [°/s].
+ *
+ * **Es la puerta que de verdad protege el sesgo.** «El robot está frenado» no es lo mismo que «el robot
+ * está quieto»: medido el 2026-10-11, con el pivote desplazándose ~8 mm el robot todavía cede cuando
+ * empieza la ventana y esa inercia entraba como sesgo (+0,6 °/s, correlacionado con el desplazamiento:
+ * −8,5 mm → +0,64 · −3,3 mm → +0,51 · −0,8 mm → 0,00). Con el robot parado de verdad la dispersión es
+ * de centésimas, así que este umbral separa los dos casos con un margen enorme. Es el mismo criterio
+ * —y el mismo orden de magnitud— que `MOTION_GYRO_SESGO_DISP_MAX` usa en la calibración de entrada.
+ */
+#define MOTION_GYRO_REFINAR_DISP_MAX 0.5f
+
+/**
  * @brief Cambio máximo que un solo refinamiento puede darle al sesgo [°/s].
  *
- * Es la red que protege: aunque una medida se cuele con el robot aún moviéndose, el sesgo no puede dar
- * la vuelta de un golpe. Medido el 2026-10-02: sin este
- * tope, muestrear al principio del asentamiento (con el robot girando por inercia tras el frenado)
- * dejó el sesgo falseado y **el giro de media vuelta dejó de verse**.
+ * Red de seguridad de **segundo orden**: quien filtra es la puerta de dispersión; esto solo evita que
+ * una medida se lleve el sesgo de un golpe si alguna vez la pasa con el robot moviéndose. Medido el
+ * 2026-10-02: sin tope, muestrear al principio del asentamiento (con el robot girando por inercia tras
+ * el frenado) dejó el sesgo falseado y **el giro de media vuelta dejó de verse**.
+ *
+ * ⚠️ Estuvo en **20**, y un tope de 20 **no protege de nada**: la contaminación real medida es de
+ * 0,5-0,6 °/s, que cabe de sobra. El número tiene que ser del orden de la deriva que se quiere seguir.
  */
-#define MOTION_GYRO_REFINAR_MAX_PASO 20.0f
+#define MOTION_GYRO_REFINAR_MAX_PASO 5.0f
 
 /**
  * @brief Factor de escala del giroscopio: cuánto mide de menos [adimensional].
  *
  * ⚠️ **El módulo es un clon** (el IC va marcado `MP65888LB1`, que no corresponde a ningún InvenSense)
- * y su sensibilidad **no es la del datasheet**: el factor de corrección es **1,20**.
+ * y su sensibilidad **no es la del datasheet**: integrando en crudo mide un **1 % de menos**, así que
+ * el factor de corrección es **1,01**.
  *
- * Medido el 2026-10-02 con cuatro giros de 90° al mismo lado (`MOV UP 4` = 360° pedidos) y una **cinta
- * en el suelo bajo el morro**, que es la única referencia que no depende del sensor que se calibra:
+ * Medido el 2026-10-11 con **cuatro giros de 90° pedidos** (`MOV UP 4` = 360°) contra **dos líneas
+ * perpendiculares marcadas en la mesa**: una alineada con el morro al empezar y otra a 90°. La escala
+ * se barrió **en caliente** con la orden `GYRO ESC <valor>`, sin regrabar (un flasheo reinicia el
+ * robot y con él la calibración del sesgo, así que dos tandas no se podrían ni comparar):
  *
- * | `GYR_ESC` | Lo que hizo el robot |
- * |:---------:|:--------------------:|
- * | 1,00 | +45° (se pasa) |
- * | 1,125 | +23° |
- * | 1,19 | +7° |
- * | 1,21 | −7° (se queda corto) |
- * | **1,20** | **0°** |
+ * | `GYR_ESC` | `>MOV_ANG` por giro | Lo que hizo el robot |
+ * |:---------:|:-------------------:|:--------------------:|
+ * | 1,20 | 79,9° · 81,4° | **~80°** ⇒ 10° corto **en cada esquina** |
+ * | 1,07 | 88,6° | ~85° |
+ * | **1,01** | **91,8°** | **~5° corto tras la vuelta entera, y esos 5° son la tolerancia** |
  *
  * ⚠️ **`MOV_GYR` NO sirve para medir esta escala, y por ahí se perdió una noche entera.** El lazo
  * cierra sobre `gyro_total`, **que ya está escalado**: si se sube la escala, el robot gira menos, pero
  * el lazo sigue cortando cuando su cuenta llega a 90 y la telemetría vuelve a decir 90. **La
- * referencia se valida a sí misma** — con cualquier escala `MOV_GYR` da 89-91° por esquina. Para
- * calibrar hace falta una referencia **externa**, y la cinta es la buena.
+ * referencia se valida a sí misma** — con cualquier escala `MOV_GYR` da 88,5° por esquina, y encima
+ * con ±0,03° de dispersión entre los cuatro giros. Para calibrar hace falta una referencia **externa**.
  *
- * ❌ **Las tablas de escalas anteriores (1,25, 1,4…) no valen**, y el error de método fue comparar el
- * número del giroscopio con una **apreciación a ojo** del ángulo final: dos lecturas del mismo hecho
- * discrepan fácilmente ±15 %, y en esa horquilla cabe cualquier factor.
+ * ⚠️ **Y esa referencia externa hay que medirla BIEN.** La tabla del 2026-10-02, que daba 1,20, queda
+ * **retirada**: no medía la orientación final del robot sino el **desplazamiento del morro** contra una
+ * cinta, convertido a ángulo con $d = 2L\sin(\Delta/2)$ y $L$ = 62 mm. Esa conversión solo vale si el
+ * pivote es exactamente sobre el centro, y esa noche el robot **pivotaba sobre una rueda dura** — el
+ * propio registro lo dice. Con la escala corregida a 1,01, un `ESC` de 1,20 habría dejado al robot
+ * unos **57° cortos** de la marca, y aquella medida decía «0°». Comparar la **orientación** contra dos
+ * líneas perpendiculares no tiene ese punto débil.
  *
- * ⚠️ **Y no se puede calibrar con una rueda dura**: mientras una de las dos ruedas arrastraba, el
- * robot **pivotaba sobre ella** y el ángulo que acababa teniendo no era función de la escala. Medido:
- * en cuanto se arregló el eje, la medida empezó a responder de forma monótona a los cambios de `ESC`.
- *
- * @note **Un error de escala no se ve en un giro suelto:** 90° se quedan en 72 y parecen «un giro que
+ * @note **Un error de escala no se ve en un giro suelto:** 90° se quedan en 80 y parecen «un giro que
  *       se ha quedado corto», que es justo lo que se achaca al rozamiento. Lo delata pedir **varias
  *       vueltas**: el error se multiplica y sale a la vista.
+ *
+ * @note Con la escala corregida, lo que queda por girar de menos es **`MOTION_TOL_GRADOS`**: el lazo
+ *       suelta a 88,5° y eso son **1,45° por esquina**, que es exactamente lo que mide el −5,8° de
+ *       `>MOV_E_ANG` en la vuelta entera. Esa es la palanca que queda, no este factor.
  */
-#define MOTION_GYRO_ESCALA       1.2f
+#define MOTION_GYRO_ESCALA       1.01f
 
 /**
  * @brief Sesgo por encima del cual **no se usa el giroscopio** [°/s].
@@ -390,20 +431,37 @@ typedef struct {
 /**
  * @brief Prepara las primitivas: arranca los dos lazos y pone la pose en el origen.
  *
+ * Los lazos arrancan **con las ganancias a cero**: hay que dárselas con `MOTION_SetGanancias()` antes
+ * de pedir el primer movimiento. Se separó así porque las ganancias son **por rueda** (los dos N20 no
+ * son iguales) y seis floats sueltos en el constructor dan una firma que se lee mal.
+ *
  * @param m Estructura a inicializar
  * @param motor_izq Driver de la rueda izquierda (los motores son de la APP: `application.c`)
  * @param motor_der Driver de la rueda derecha
- * @param kp Ganancia proporcional de los lazos de velocidad
- * @param ki Ganancia integral
- * @param kd Ganancia derivativa
- * @note Conviene pasarle las ganancias que se hayan sintonizado en la prueba 18.
  * @note Los motores se pasan por parámetro en vez de usar los globales de `application.c`: así este
  *       módulo no depende de un estado que no controla.
  */
 void MOTION_Init(Motion_t *m,
                  DRV8833_Motor_t *motor_izq,
-                 DRV8833_Motor_t *motor_der,
-                 float kp, float ki, float kd);
+                 DRV8833_Motor_t *motor_der);
+
+/**
+ * @brief Pone las ganancias de los dos lazos de velocidad, una por rueda.
+ *
+ * @param m Estructura de las primitivas
+ * @param kp_izq Ganancia proporcional del lazo izquierdo
+ * @param ki_izq Ganancia integral del lazo izquierdo
+ * @param kd_izq Ganancia derivativa del lazo izquierdo
+ * @param kp_der Ganancia proporcional del lazo derecho
+ * @param ki_der Ganancia integral del lazo derecho
+ * @param kd_der Ganancia derivativa del lazo derecho
+ * @note Conviene pasarle las ganancias que se hayan sintonizado en la prueba 18 (orden `PID`).
+ * @note `PID_SetGanancias()` resetea el integrador: cambiar ganancias en caliente no puede dejar
+ *       dentro el término de salida que acumuló la combinación anterior.
+ */
+void MOTION_SetGanancias(Motion_t *m,
+                         float kp_izq, float ki_izq, float kd_izq,
+                         float kp_der, float ki_der, float kd_der);
 
 /**
  * @brief Avanza en línea recta la distancia pedida.
@@ -504,6 +562,19 @@ uint8_t MOTION_Girar(Motion_t *m, float grados);
  * @param m Estructura de las primitivas
  */
 void MOTION_Parar(Motion_t *m);
+
+/**
+ * @brief Integra el giroscopio con el mismo acumulador que usan las primitivas.
+ *
+ * Existe para las pruebas que necesitan el ángulo del giroscopio **sin** pasar por las primitivas de
+ * movimiento —la de odometría, que se hace empujando el robot a mano y con las ruedas libres—. El
+ * acumulador es el mismo (`motion_gyro_leer()`): **no hay dos maneras de contar el ángulo**.
+ *
+ * @param m Estructura de las primitivas (aquí solo se usa la parte del giroscopio)
+ * @param dt Segundos desde la llamada anterior
+ * @note El sesgo hay que haberlo calibrado antes (`MOTION_Init()`, con el robot parado).
+ */
+void MOTION_GyroActualizar(Motion_t *m, float dt);
 
 /**
  * @brief Ángulo que llevas girado desde el último MOTION_Init() [°].

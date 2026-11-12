@@ -61,6 +61,18 @@ uint8_t BUTTONS_WasPressed(Button_t button);
  */
 uint8_t BUTTONS_GetMask(void);
 
+/**
+ * @brief Pide salir de la prueba en curso, como si se hubiera pulsado MENU (orden `SALIR`).
+ *
+ * `BUTTONS_SalidaSolicitada()` mira el contador de la interrupción de MENU, así que marcarlo es
+ * **exactamente** lo que hace el botón. Sirve para salir desde el PC, que es lo que permite guionizar
+ * el banco sin tocar el robot.
+ *
+ * @note La orden solo se lee dentro de las pruebas que llaman a `CONSOLE_Update()` en su bucle
+ *       (12, 18 y 20); en las demás hay que esperar a que salgan solas o pulsar MENU.
+ */
+void BUTTONS_SolicitarSalida(void);
+
 /* ------------------------------------------------------------------
  * Numeración de los botones para telemetría y menú.
  *
@@ -100,7 +112,9 @@ uint8_t BUTTONS_GetEvent(void);
  * respondería dentro de una prueba. Con la interrupción, la pulsación se cuenta
  * siempre y basta con que la prueba pregunte aquí para terminar.
  *
- * Es también la vía por la que BUTTONS_GetEvent() devuelve BTN_NUM_MENU.
+ * ⚠️ **Esta es la ÚNICA vía de MENU**: `BUTTONS_GetEvent()` no lo devuelve, porque si lo hiciera se
+ * comería la bandera antes de que el `while` de una prueba la viera y MENU dejaría de sacar de las
+ * pruebas. Quien trate MENU como un botón más —el menú, para volver al nivel de arriba— llama aquí.
  *
  * @return 1 si había una pulsación pendiente (la consume), 0 si no.
  *         Un contacto mecánico puede contar varias veces: solo se acepta una

@@ -1,5 +1,6 @@
 #include "app/oled.h"
 #include "hal/i2c.h"
+#include "hal/timers.h"
 
 #include <string.h>
 
@@ -53,7 +54,7 @@ static uint16_t oled_addr8 = 0;     /* 0 = pantalla no detectada */
  * Fuente 5×7: un byte por columna, bit0 = fila de arriba (bit6 = abajo).
  * Solo los glifos que se usan; el orden debe coincidir con oled_chars[].
  * ------------------------------------------------------------------ */
-static const char oled_chars[] = " 0123456789ABCDEIKLMNOPSTUW-:V.FGRX+/>_";
+static const char oled_chars[] = " 0123456789ABCDEIKLMNOPSTUW-:V.FGRX+/>_HJQYZ";
 
 static const uint8_t oled_font[][5] = {
     {0x00, 0x00, 0x00, 0x00, 0x00},   /* ' ' */
@@ -94,7 +95,16 @@ static const uint8_t oled_font[][5] = {
     {0x08, 0x08, 0x3E, 0x08, 0x08},   /* '+'                  */
     {0x20, 0x10, 0x08, 0x04, 0x02},   /* '/'                  */
     {0x41, 0x22, 0x14, 0x08, 0x00},   /* '>'  (cursor de menú) */
-    {0x40, 0x40, 0x40, 0x40, 0x40}    /* '_'  (va en >CMD_ERR, >PID_KP...) */
+    {0x40, 0x40, 0x40, 0x40, 0x40},   /* '_'  (va en >CMD_ERR, >PID_KP...) */
+    /* Las cinco que se anadieron el 2026-10-11 para el menu nuevo: sin ellas no se pueden
+       escribir DERECHA, IZQUIERDA ni AJUSTE. Van al final a proposito: el orden de esta
+       tabla tiene que coincidir con oled_chars[], y reordenar la cadena entera es un cambio
+       que el compilador NO comprueba glifo a glifo (el typedef solo cuenta). */
+    {0x7F, 0x08, 0x08, 0x08, 0x7F},   /* 'H'  (DERECHA)   */
+    {0x20, 0x40, 0x41, 0x3F, 0x01},   /* 'J'  (AJUSTE)    */
+    {0x3E, 0x41, 0x51, 0x21, 0x5E},   /* 'Q'  (IZQUIERDA) */
+    {0x07, 0x08, 0x70, 0x08, 0x07},   /* 'Y'              */
+    {0x61, 0x51, 0x49, 0x45, 0x43}    /* 'Z'  (IZQUIERDA) */
 };
 
 /* Comprobación en tiempo de compilación: tiene que haber un glifo por cada
@@ -201,7 +211,14 @@ static void oled_pixel(uint8_t x, uint8_t y)
 
 void OLED_Update(void)
 {
+    uint16_t t0;
+
     if (oled_addr8 == 0) return;
+
+    /* Cronometrado porque **bloquea**: son 528 bytes por I²C a `I2C1_CLOCK_HZ`, o sea ~47 ms a
+       100 kHz. Dentro de un bucle de control eso es el lazo entero sin correr, así que conviene
+       tenerlo medido y no estimado (orden `LAZO` de la consola). */
+    t0 = TIM_Cuentas();
 
     for (uint8_t pagina = 0; pagina < OLED_PAGINAS; pagina++) {
         oled_cmd((uint8_t)(0xB0 | pagina));     /* página 0..3 */
@@ -209,6 +226,8 @@ void OLED_Update(void)
         oled_cmd(0x10);                         /* columna alta = 0 */
         oled_data(&oled_buf[pagina * OLED_ANCHO], OLED_ANCHO);
     }
+
+    TIM_Cronometrar(TIM_TRAMO_OLED, t0);
 }
 
 /* ------------------------------------------------------------------ */

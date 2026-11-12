@@ -21,6 +21,17 @@ void MX_GPIO_Init(void);
 void GPIO_MenuBtnIRQ_Handler(void);
 
 /**
+ * @brief Pide una salida SIN que haya habido flanco (orden `SALIR`/`MENU` de la consola).
+ *
+ * ⚠️ **Esto NO se puede hacer con `GPIO_MenuBtnIRQ_Handler()`**, y por ahí la orden `SALIR` no hacía
+ * nada hasta el 2026-10-11: esa función despacha por `HAL_GPIO_EXTI_IRQHandler()`, y esa **solo llama
+ * al callback si el flag de EXTI está puesto** — o sea, solo si acaba de haber un flanco real. En una
+ * orden de consola no lo hay, así que el contador no se incrementaba y la prueba en curso seguía
+ * corriendo aunque la consola acusara `>CMD_SALIR:1`.
+ */
+void GPIO_MenuBtnIRQ_Solicitar(void);
+
+/**
  * @brief Pulsaciones de MENU contadas por la interrupción.
  * @return Número de flancos pendientes; al leerlos los consume (devuelve 0 si
  *         no había ninguno). Puede haber más de uno si nadie consultó a tiempo.

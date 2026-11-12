@@ -52,12 +52,40 @@ Fichero: `firmware/platformio.ini`
 con `-ffunction-sections` y `-fdata-sections`, más el `--gc-sections` del enlazador. **Eso es lo
 correcto en este chip y no hay que «mejorarlo».**
 
+#### Cuánta Flash hay de verdad: **64 KB**, medido (2026-10-10)
+
+⚠️ **El *environment* se llama `[env:bluepill_f103c8_128k]`, pero ni el `board` ni el chip son de
+128 KB.** El `board` es `bluepill_f103c8` (64 KB) y el chip **también es de 64 KB**, comprobado
+leyendo la **firma del chip**:
+
+```
+$ openocd -f interface/stlink.cfg -f target/stm32f1x.cfg \
+    -c "init" -c "flash probe 0" -c "mdh 0x1FFFF7E0 2" -c "shutdown"
+Info : device id = 0x20036410
+Info : flash size = 64 KiB
+0x1ffff7e0: 0040 ffff      <- 0x0040 = 64
+```
+
+- El registro `0x1FFFF7E0` contiene el **tamano de flash en KB** (`0x1FFFF7E8` es el ID unico de 96 bits).
+- ⚠️ **El `chipid` NO sirve para esto**: vale `0x410`, que es «F1 *medium density*» y cubre de 32 a
+  128 KB. Hay que leer `F_SIZE`.
+- **Consecuencia practica**: el porcentaje que informa PlatformIO y **el presupuesto de este
+  documento son los reales**. Con 64 KB y ~52,9 KB usados quedan **~12,6 KB libres** ⇒ **no hay
+  holgura**, y el «cuando haga falta espacio se recortan las pruebas» del historial **no es una
+  precaucion teorica**.
+- ⇒ Si algun dia se pasa a un chip de 128 KB, ademas de la placa hay que cambiar el **`board`**
+  (`bluepill_f103c8_128k`), porque **el linker script sale de ahi**: el de 64 KB es
+  `STM32F103C8TX_FLASH.ld` (`MEMORY FLASH = 64K`) y el de 128 KB, `STM32F103CBTX_FLASH.ld`. Tener el
+  chip de 128 KB con el `board` de 64 **desperdicia la mitad de la memoria sin avisar**.
+- 📌 **Pendiente**: renombrar el *environment* a `bluepill_f103c8` para que no mienta (implica
+  **recompilar limpio**, porque cambia el directorio de `build`).
+
 Medido el 2026-10-02 sobre el firmware real (65 536 B de Flash):
 
 | Configuración | Flash | Veredicto |
 |:--------------|------:|:----------|
 | **`-Os` (actual)** | **48 644 B (74,2 %)** | ✅ lo que hay |
-| `-Os` sin `_printf_float` | 34 676 B (52,9 %) | grifo pendiente: el `%f` cuesta 8 596 B |
+| ~~`-Os` sin `_printf_float`~~ | ~~34 676 B (52,9 %)~~ | ✅ **HECHO el 2026-10-10**: ver abajo |
 | `-Os` + `-flto` | 43 272 B (66,0 %) | ❌ **destruye las interrupciones** |
 | **`-O3`** | **59 272 B (90,4 %)** | ❌ engorda un **37 %** |
 
@@ -100,11 +128,52 @@ del LED—; sin `EXTI15_10_IRQHandler` no hay botón MENU y sin `USART3_IRQHandl
 > `-Wl,-u,EXTI15_10_IRQHandler` y compañía, que es el mismo truco de `_printf_float`. **No se ha
 > probado**, y habría que repasar **todos** los overrides débiles, no solo los tres que se ven aquí.)
 
-**Grifo pendiente: 8 596 B del `%f`.** No lo usa solo la telemetría —lo usan las **pantallas de la
-OLED** (`%.2f V`, las ganancias del PID, `UM/C`, `PPR`)—, así que quitarlo **no es un flag**: hay que
-formatear con aritmética entera (`%d.%02d`) y cambiar `%f` por `%s`. Es el mayor ahorro que queda,
-pero es un refactor con **salida visible**: con el 66 % hay 22 KB libres y no es cosa de la víspera
-del evento.
+#### ✅ Hecho el 2026-10-10: fuera el `%f`, y con el **toda** la doble precision
+
+El refactor ya esta hecho, y salio **mejor de lo previsto** porque el `%f` no venia solo: los
+argumentos de `printf` se **promocionan a `double`**, asi que enlazarlo obligaba a traer tambien
+toda la aritmetica de doble precision.
+
+| Bloque | Antes | Despues |
+|:--|--:|--:|
+| `_dtoa_r` y el formateo | 5 076 B | **2 156 B** |
+| Coma flotante de **doble** precision (26 simbolos) | 6 108 B | **0 B** |
+| Trigonometria (odometria) | 3 344 B | 3 344 B |
+| Floats de biblioteca | 4 224 B | 4 054 B |
+| **Flash total** | **53 196 B (81,2 %)** | **43 716 B (66,7 %)** |
+| **Libre** | **12 340 B** | **21 820 B** |
+
+Medido con `arm-none-eabi-nm --print-size` y el flag `-Wl,-u,_printf_float` retirado de
+`platformio.ini`.
+
+**Como se hizo**: modulo nuevo `app/format.c` con `FORMAT_Float()`, que escala el valor, redondea y
+separa parte entera y fraccion para escribirlas con `%lu` y `%0*lu` — es decir, **con formateo de
+enteros, que ya estaba enlazado**. Luego se sustituyeron los **23 usos**: 2 en `app/telemetry.c` y
+21 en las pantallas de `app/application.c`. En la telemetria **el texto que sale es el mismo**, asi
+que Teleplot sigue leyendo numeros; en la OLED se conserva la alineacion usando `%5s` en vez de
+`%5.2f`.
+
+⚠️ **Si algun dia se vuelve a usar un `%f`**: hay que reponer `-Wl,-u,_printf_float`, porque **sin
+el flag no falla la compilacion, simplemente los numeros salen mal**. Esta anotado junto a la linea
+retirada, en `platformio.ini`.
+
+📌 **Y lo que esto cambia**: el «presupuesto de Flash» deja de ser el cuello de botella. De 12,3 KB
+libres se pasa a **21,8 KB**, que es lo que hace viable portar la capa de aplicacion (perfiles,
+mapa y `flood fill`) sin tocar el banco de pruebas.
+
+✅ **Y validado en el robot el mismo dia** (por el puente WiFi, con la orden `HELP`):
+
+```
+>VBAT:8.482      >VCELL1:4.153   >VCELL2:4.329
+>VBAT_DESEQ:-0.176          <- el signo negativo
+>BAT_K:0.302
+>PID_KP:0.100  >PID_KI:0.500  >PID_KD:0.000   <- el cero CON decimales
+>PID_VEL:300.000  >LED:0
+```
+
+El riesgo real de este cambio era que **newlib-nano no soportase el ancho por argumento**
+(`%0*lu`, que es lo que pone los ceros a la izquierda de la fraccion): **queda descartado**, las
+tres cifras salen. Y los enteros (`>LED:0`, `>PACK_PRESENTE:1`) siguen intactos.
 
 ### `extra_script.py`
 
@@ -112,11 +181,15 @@ del evento.
 se añaden con `env.BuildSources()`:
 
 ```python
-add_layer_sources(env, ["app", "control", "filter", "sensor", "hal", "hw"])
+add_layer_sources(env, ["core", "app", "control", "filter", "sensor", "hal", "hw"])
 ```
 
 > Para una carpeta nueva, añádela a esa lista (y crea la carpeta, aunque esté vacía,
 > o el script la saltará con `[SKIP]`).
+>
+> 📌 **`drivers/` todavía NO está en la lista, a propósito**: la capa existe (con su README) pero
+> aún no tiene fuentes. Se añadirá cuando `core/motion` empiece a usar el contrato de
+> `core/core_io.h` y haya algo que compilar.
 
 ---
 
@@ -145,9 +218,17 @@ add_layer_sources(env, ["app", "control", "filter", "sensor", "hal", "hw"])
 
 ### Reglas de dependencia
 
-1. Cada capa solo llama a la inmediatamente inferior (ver [Layered Architecture.md](./Layered%20Architecture.md)).
-2. `main.c` es mínimo: `APP_InitAll()` y `APP_Run()`.
-3. Nada de `HAL_*` fuera de la capa HAL (salvo `HAL_Delay`/`HAL_GetTick` en APP).
+1. **La lógica de misión no toca el hardware.** `core/` (con `control/` y `filter/`) no incluye
+   nada de `drivers/`, `sensor/`, `hal/` ni `hw/`: habla por el contrato
+   [`core/core_io.h`](../firmware/core/core_io.h). Y es **comprobable en cada cambio**:
+   `gcc -c -Wall -Wextra -I firmware firmware/core/*.c firmware/control/*.c firmware/filter/*.c`
+   tiene que compilar **en el PC**, sin el STM32 y sin un aviso.
+2. **`app/` es la excepción deliberada.** Es interfaz y banco (menú, botones, OLED, telemetría y
+   las pruebas), así que **sí puede** tocar `hal/` y `sensor/`: `MX_*_Init()` en el arranque,
+   `HAL_GetTick()`/`HAL_Delay()` para los tiempos, `HAL_GPIO_*` para el LED y los emisores. Lo
+   que **no** puede es tener lógica de misión. Medido el 2026-10-10: `core`+`control`+`filter` =
+   **0 símbolos de la HAL**; `app/`, 14 (ver [auditoria-capas.md](./auditoria-capas.md)).
+3. `main.c` es mínimo: `APP_InitAll()` y `APP_Run()`.
 4. Nada de `printf` en capas bajas: la salida va por `app/telemetry.c` y la entrada (órdenes del
    usuario) por `app/console.c`. Nadie más toca la UART.
 
@@ -234,6 +315,8 @@ navegación del micromouse).
 |:---------|:---------|
 | `platformio: command not found` | Usar `~/.platformio/penv/bin/pio` o activar la extensión |
 | El puerto de subida no aparece | Comprobar `/dev/stlinkv2_2` y permisos sobre el USB |
+| ⚠️ **`st-info` y `st-flash` no funcionan**: dan `flash: 0`, `sram: 0` y `unknown chip id! 0x410` aunque el ST-Link se detecte bien | El `stlink` instalado en `/usr/local` esta **incompleto**: el binario busca `/usr/local/share/stlink/config/chips` y los datos estan en otra ruta. **Usar `openocd`**, que trae sus propios scripts: `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c "init" -c "mdh <dir> <n>" -c "shutdown"` (solo lee, no flashea) |
+| Hace falta saber con **que linker script** se enlaza | `pio run -v` **no lo imprime** si no hay nada que recompilar: forzar con `touch firmware/src/main.c && pio run -d firmware -v` y buscar el `.ld`. El `.map` no existe (no hay `-Wl,-Map`) y el `idedata.json` tampoco lo trae |
 | El monitor no conecta | Puerto `/dev/ttyUSB0` ocupado por otro programa |
 | El ST-Link no engancha tras un flasheo | Conectar **SWDIO (PA13), SWCLK (PA14), GND y 3.3 V**; si no responde, *connect under reset* |
 | Se perdió el depurador definitivamente | Solo si alguien usó `__HAL_AFIO_REMAP_SWJ_DISABLE()`: recuperar con un borrado por *connect under reset* |

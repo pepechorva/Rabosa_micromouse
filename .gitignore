@@ -6,6 +6,10 @@
 # README del proyecto (solo el de la raíz; el resto de MD van por carpeta)
 !/README.md
 
+# Licencias de la raíz: el software y el diseño de hardware van con licencias distintas
+!LICENSE
+!LICENSE-HARDWARE
+
 # workspace multi-raíz (opcional versionarlo con git)
 !*.code-workspace
 
@@ -51,6 +55,17 @@ firmware/include/wifi_secrets.h
 !firmware/filter/
 !firmware/filter/*.c
 !firmware/filter/*.h
+
+# capa CORE (logica de mision portable; se compila tambien en el PC)
+!firmware/core/
+!firmware/core/*.c
+!firmware/core/*.h
+
+# capa DRIVERS (dispositivos: implementan core/core_io.h)
+!firmware/drivers/
+!firmware/drivers/*.c
+!firmware/drivers/*.h
+!firmware/drivers/README.md
 
 # capa SENSOR
 !firmware/sensor/
@@ -128,6 +143,32 @@ firmware/.vscode/
 mechanical/step/
 mechanical/**/*.zip
 mechanical/**/*.step
+
+# ⚠️ Los diseños mecánicos PROPIOS (freecad/*.py y *.step) también quedan FUERA, a propósito:
+# decisión del 2026-10-11 — al repositorio sube el firmware y su documentación, y el STEP
+# es un entregable derivado que se regenera con el script. El .FCStd SÍ se versiona (es el
+# fichero editable de FreeCAD).
+# Si algún día se quieren versionar los diseños propios, las excepciones tienen que llevar
+# prefijo `chasis`: un `!.../freecad/*.step` a secas reabriría los ~784 MB de GrabCAD.
+
+# ------------------------------------------------------------------
+# Hardware: una carpeta por FORMATO (cableado / pcb-v1 / …)
+#   - Un solo diseño eléctrico, varios formatos físicos (ver hardware/README.md)
+#   - De momento solo entran los README: los ficheros de CAD y de KiCad se dan
+#     de alta A MANO, un tipo cada vez, cuando existan de verdad
+# ------------------------------------------------------------------
+!hardware/
+!hardware/*.md
+!hardware/*/
+!hardware/*/*.md
+!hardware/*/kicad/
+!hardware/*/kicad/*.md
+
+# KiCad de una versión — descomentar cuando el proyecto exista
+# !hardware/*/kicad/*.kicad_pro
+# !hardware/*/kicad/*.kicad_sch
+# !hardware/*/kicad/*.kicad_pcb
+# !hardware/*/kicad/*.kicad_sym
 
 # ------------------------------------------------------------------
 # Obsidian: cuaderno personal → NUNCA al repositorio

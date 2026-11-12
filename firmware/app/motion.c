@@ -25,6 +25,7 @@
 #include "app/buttons.h"
 #include "hal/drv8833.h"
 #include "hal/systemclock.h"
+#include "hal/timers.h"
 #include "sensor/encoder.h"
 #include "sensor/imu.h"
 
@@ -191,7 +192,7 @@ float MOTION_GetGiroGanancia(Motion_GiroGanancia_t cual)
    las usa para refinar el sesgo aprovechando que el robot está frenado. */
 static uint8_t motion_gyro_muestrear(float *media);
 static void    motion_gyro_calibrar(Motion_t *m);
-static void    motion_gyro_refinar(Motion_t *m, float suma, uint8_t n);
+static void    motion_gyro_refinar(Motion_t *m, float suma, float suma2, uint8_t n);
 
 /**
  * @brief Un paso de las primitivas: mide, mueve la pose, calcula el duty y lo aplica.
@@ -208,8 +209,6 @@ static void motion_paso(Motion_t *m, float consigna_izq, float consigna_der, flo
 {
     int32_t um_izq;
     int32_t um_der;
-
-    update_encoder_readings();
 
     um_izq = get_encoder_left_micrometers();
     um_der = get_encoder_right_micrometers();
@@ -244,6 +243,7 @@ static void motion_asentar(Motion_t *m)
     uint32_t t_inicio = HAL_GetTick();
     uint32_t t_ultimo = t_inicio;
     float    suma_gyro     = 0.0f;
+    float    suma2_gyro    = 0.0f;
     uint8_t  muestras_gyro = 0U;
 
     /* Se **suelta el pedal de golpe**, y no es un detalle. El integrador del PID venía guardando el
@@ -281,7 +281,8 @@ static void motion_asentar(Motion_t *m)
            decían 165°). */
         if ((ahora - t_inicio) >= (MOTION_ASENTAR_MS / 2U)) {
             if (IMU_Read(&imu)) {
-                suma_gyro += imu.gz;
+                suma_gyro  += imu.gz;
+                suma2_gyro += imu.gz * imu.gz;
                 muestras_gyro++;
             }
         }
@@ -297,7 +298,7 @@ static void motion_asentar(Motion_t *m)
     DRV8833_Brake(m->motor_izq);
     DRV8833_Brake(m->motor_der);
 
-    motion_gyro_refinar(m, suma_gyro, muestras_gyro);
+    motion_gyro_refinar(m, suma_gyro, suma2_gyro, muestras_gyro);
 }
 
 /**
@@ -402,11 +403,13 @@ static void motion_gyro_calibrar(Motion_t *m)
  *
  * @param m Estructura de las primitivas
  * @param suma Suma de las muestras tomadas con el robot frenado [°/s]
+ * @param suma2 Suma de los cuadrados de esas muestras [(°/s)²]
  * @param n Número de muestras
  */
-static void motion_gyro_refinar(Motion_t *m, float suma, uint8_t n)
+static void motion_gyro_refinar(Motion_t *m, float suma, float suma2, uint8_t n)
 {
     float media;
+    float varianza;
     float paso;
 
     if ((m->gyro_ok == 0U) || (n < MOTION_GYRO_REFINAR_MIN)) {
@@ -414,6 +417,19 @@ static void motion_gyro_refinar(Motion_t *m, float suma, uint8_t n)
     }
 
     media = suma / (float)n;
+
+    /* ⚠️ **«Frenado» no es lo mismo que «quieto», y el tope del paso no los distingue.** Medido el
+       2026-10-11: con el pivote desplazándose ~8 mm el robot **todavía cede** cuando empieza la ventana,
+       y esa inercia entraba como sesgo. El sesgo saltaba **+0,6 °/s por giro** y correlacionaba con la
+       calidad del pivote: −8,5 mm daban +0,64, −3,3 mm daban +0,51 y −0,8 mm daban 0,00. El tope de
+       ±20 °/s no protege de eso, porque 0,6 cabe de sobra.
+       Se descarta por **dispersión**, el mismo criterio que ya usa `motion_gyro_muestrear()`: con el
+       robot parado de verdad esto es ruido (centésimas) y si aún se mueve se dispara. */
+    varianza = (suma2 / (float)n) - (media * media);
+
+    if (varianza > (MOTION_GYRO_REFINAR_DISP_MAX * MOTION_GYRO_REFINAR_DISP_MAX)) {
+        return;
+    }
 
     /* El filtro es lento **y el paso está topado**: una medida suelta —o una que se haya colado con el
        robot aún moviéndose— no puede dar la vuelta al sesgo de golpe. Es la diferencia entre
@@ -466,15 +482,33 @@ static uint8_t motion_gyro_leer(Motion_t *m, float dt)
 }
 
 /**
+ * @brief Pone las ganancias de los dos lazos de velocidad, una por rueda.
+ *
+ * @param m Estructura de las primitivas
+ * @param kp_izq Ganancia proporcional del lazo izquierdo
+ * @param ki_izq Ganancia integral del lazo izquierdo
+ * @param kd_izq Ganancia derivativa del lazo izquierdo
+ * @param kp_der Ganancia proporcional del lazo derecho
+ * @param ki_der Ganancia integral del lazo derecho
+ * @param kd_der Ganancia derivativa del lazo derecho
+ */
+void MOTION_SetGanancias(Motion_t *m,
+                         float kp_izq, float ki_izq, float kd_izq,
+                         float kp_der, float ki_der, float kd_der)
+{
+    CTRL_SetGanancias(&m->izq, kp_izq, ki_izq, kd_izq);
+    CTRL_SetGanancias(&m->der, kp_der, ki_der, kd_der);
+}
+
+/**
  * @brief Prepara las primitivas: arranca los dos lazos y pone la pose en el origen.
  */
 void MOTION_Init(Motion_t *m,
                  DRV8833_Motor_t *motor_izq,
-                 DRV8833_Motor_t *motor_der,
-                 float kp, float ki, float kd)
+                 DRV8833_Motor_t *motor_der)
 {
-    CTRL_Init(&m->izq, kp, ki, kd, MOTION_DUTY_MAX);
-    CTRL_Init(&m->der, kp, ki, kd, MOTION_DUTY_MAX);
+    CTRL_Init(&m->izq, 0.0f, 0.0f, 0.0f, MOTION_DUTY_MAX);
+    CTRL_Init(&m->der, 0.0f, 0.0f, 0.0f, MOTION_DUTY_MAX);
     CTRL_SetRampa(&m->izq, MOTION_RAMPA_MM_S2);
     CTRL_SetRampa(&m->der, MOTION_RAMPA_MM_S2);
 
@@ -483,7 +517,8 @@ void MOTION_Init(Motion_t *m,
 
     ODOM_Init(&m->odo, 0.0f, 0.0f, 0.0f);
 
-    update_encoder_readings();
+    /* La lectura ya viene fresca de la interrupción de control: aquí solo hay que tomar la referencia,
+       que es lo que marca dónde empieza a contar este movimiento. */
     m->um_izq_previo = get_encoder_left_micrometers();
     m->um_der_previo = get_encoder_right_micrometers();
 
@@ -496,6 +531,24 @@ void MOTION_Init(Motion_t *m,
 float MOTION_GetAngulo(const Motion_t *m)
 {
     return m->odo.theta * MOTION_RAD_A_GRADOS;
+}
+
+/**
+ * @brief Integra el giroscopio con el mismo acumulador que usan las primitivas.
+ *
+ * Existe para las pruebas que necesitan el ángulo del giroscopio **sin** pasar por las primitivas de
+ * movimiento: la de odometría, que se hace **empujando el robot a mano** y con las ruedas libres. Es la
+ * única forma de comparar las **cuentas**, el **giroscopio** y una **marca en el suelo** sin que el
+ * patín arrastre. El acumulador es el mismo `motion_gyro_leer()`: **no hay dos maneras de contar el
+ * ángulo**, que es justo lo que se está poniendo a prueba.
+ *
+ * @param m Estructura de las primitivas (aquí solo se usa la parte del giroscopio)
+ * @param dt Segundos desde la llamada anterior
+ * @note El sesgo hay que haberlo calibrado antes (`MOTION_Init()`, con el robot parado).
+ */
+void MOTION_GyroActualizar(Motion_t *m, float dt)
+{
+    (void)motion_gyro_leer(m, dt);
 }
 
 /**
@@ -577,6 +630,7 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
     uint32_t t_inicio = HAL_GetTick();
     uint32_t t_ultimo = t_inicio;
     uint8_t  llegado  = 0U;
+    uint16_t t_lazo   = TIM_Cuentas();   /* cronómetro de la vuelta del lazo (se cierra al final) */
 
     /* El rumbo del giroscopio se mide **desde aquí**, y eso es justo lo que lo hace útil: la
        referencia es el rumbo que el robot tenga en este instante, aunque venga torcido del movimiento
@@ -672,12 +726,42 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
         motion_paso(m, vel - correccion, vel + correccion, dt);
 
         HAL_Delay(MOTION_PASO_MS);
+
+        /* El tramo se cierra **después** de la espera, así que el máximo es el periodo real de la
+           vuelta (trabajo + espera) y no solo lo que tarda el cálculo, que es lo que interesa para
+           saber cuánto retardo mete el lazo. */
+        TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
+        t_lazo = TIM_Cuentas();
     }
 
     motion_asentar(m);
 
     return llegado;
 }
+
+/**
+ * @brief Periodo del lazo **exterior** del giro [ms].
+ *
+ * ⚠️ Es **1 ms, no 10** como el del avance, y el motivo tiene número: **el error de un giro es el
+ * retardo del lazo multiplicado por la velocidad angular**.
+ *
+ * Con el lazo exterior a 10 ms más los lazos de rueda (~10 ms de ventana del filtro) el retardo total
+ * es de **~20 ms**; girando a 130 °/s eso son **2,6° de adelanto perdido**, que es justo lo medido el
+ * 2026-10-11 (−3,0° y −1,3° en giros de 90°). A 1 ms el lazo exterior deja de mandar y el retardo es
+ * el de las ruedas ⇒ el error de retardo baja a **~0,3°**.
+ *
+ * 📌 **La comparación con ZoroBot3** (ver [firmwares-referencia.md](../Documentacion/firmwares-referencia.md))
+ * aclara qué es lo que sobra: ellos giran a velocidad angular constante y **paran comparando el
+ * ángulo**, sin ningún mínimo artificial, y pueden hacerlo porque su giroscopio va a **1 666 Hz** y el
+ * lazo es muy rápido. Nosotros giramos con la velocidad proporcional al error (que aterriza suave) y
+ * con un mínimo de 35 mm/s para vencer la fricción estática: **ese mínimo no es el problema**, porque
+ * a 35 mm/s el robot ya gira y lo único que hace es limitar la velocidad mínima; el problema es que
+ * el lazo tarda 20 ms en enterarse de que ha llegado.
+ *
+ * @note El avance **no** necesita esto: aterriza a 50 mm/s y 20 ms de retardo son **1 mm**, dentro de
+ *       la tolerancia de 3 mm. Solo se cambia el giro.
+ */
+#define MOTION_GIRO_PASO_MS   1U
 
 /**
  * @brief Gira sobre el centro el ángulo pedido.
@@ -692,6 +776,7 @@ uint8_t MOTION_Avanzar(Motion_t *m, float mm)
  * @note El ángulo se mide con el **giroscopio** (no arrastra el deslizamiento del pivote); si la IMU
  *       no responde se cae al respaldo por odometría.
  * @see `MOTION_GYRO_SIGNO_Z` y el convenio de signo, comunes al avance: positivo = izquierda.
+ * @see `MOTION_GIRO_PASO_MS`: por qué este lazo va a 1 ms y el del avance a 10.
  */
 uint8_t MOTION_Girar(Motion_t *m, float grados)
 {
@@ -700,6 +785,7 @@ uint8_t MOTION_Girar(Motion_t *m, float grados)
     int32_t  um_izq_0     = m->um_izq_previo;
     int32_t  um_der_0     = m->um_der_previo;
     uint32_t t_inicio     = HAL_GetTick();
+    uint16_t t_lazo       = TIM_Cuentas();   /* cronómetro de la vuelta del lazo (se cierra al final) */
     uint32_t t_ultimo     = t_inicio;
     uint8_t  llegado      = 0U;
 
@@ -859,7 +945,12 @@ uint8_t MOTION_Girar(Motion_t *m, float grados)
            dθ = (ds_der − ds_izq) / L. */
         motion_paso(m, -vel + centro_mm_s, vel + centro_mm_s, dt);
 
-        HAL_Delay(MOTION_PASO_MS);
+        /* 1 ms y no 10: ver `MOTION_GIRO_PASO_MS`. El error de un giro se paga en retardo por
+           velocidad angular, y aquí es donde se paga. */
+        HAL_Delay(MOTION_GIRO_PASO_MS);
+
+        TIM_Cronometrar(TIM_TRAMO_LAZO, t_lazo);
+        t_lazo = TIM_Cuentas();
     }
 
     motion_asentar(m);

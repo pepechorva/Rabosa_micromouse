@@ -161,6 +161,16 @@ void GPIO_MenuBtnIRQ_Handler(void)
 }
 
 /**
+ * @brief Pide una salida sin flanco: hace lo mismo que haría la interrupción del botón.
+ *
+ * @see Por qué no vale llamar a `GPIO_MenuBtnIRQ_Handler()`, en `hal/gpio.h`.
+ */
+void GPIO_MenuBtnIRQ_Solicitar(void)
+{
+    HAL_GPIO_EXTI_Callback(BTN_MENU_PIN);
+}
+
+/**
  * @brief Pulsaciones de MENU contadas por la interrupción.
  *
  * @return Flancos pendientes; al consultarlos los consume

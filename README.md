@@ -8,6 +8,14 @@ Rabosa-MVR (Minimum Viable Robot) es el robot micromouse con el que quiero prese
 
 Este robot está muy basado en el de UKMARSBOT (https://github.com/micromouseonline/ukmarsbot), y las siguientes iteraciones irán inspirándose hacia Zorobot de OPRobots (https://github.com/OPRobots/ZoroBot3) y Green Giant 5.19V de Green Ye (https://greenye.net/).
 
+> 🚧 **Estado: prototipo** (hito `OSHWDem26`). Todo lo **medido** aquí —µm/cuenta, trocha efectiva,
+> umbrales de pared, ganancias del PID— corresponde al montaje de prototipo: chasis impreso y
+> electrónica soldada sobre placa de prototipos con *wrapping*. La **V1** (misma electrónica, con la
+> placa haciendo de chasis y de PCB, 70 × 90 mm: [chasis-v1.md](Documentacion/chasis-v1.md)) hereda
+> la **geometría del actuador** —mismo motor y misma rueda— pero **no** los umbrales de pared ni la
+> calibración del ADC, que dependen de dónde van los sensores y de cuánto ruido hay. Qué
+> funciona y qué falta, con su orden: [estado-del-arte.md](Documentacion/estado-del-arte.md).
+
 ---
 
 
@@ -33,12 +41,17 @@ Rabosa-MVR/
 │   ├── src/
 │   │   └── main.c            Punto de entrada (delega en la capa APP)
 │   ├── app/                  APP      application.c · telemetry.c · buttons.c · oled.c
-│   ├── control/              CONTROL   (por escribir: pid · setpoint · controller)
-│   ├── filter/               FILTER   (por escribir: filter · iekf · odometry)
+│   ├── core/                 CORE     lógica de misión portable: profile.c · core_io.h
+│   │                                  (se compila y se prueba en el PC, sin el STM32)
+│   ├── drivers/              DRIVERS  dispositivos que implementan core_io.h
+│   │                                  (contrato escrito; implementación pendiente)
+│   ├── control/              CONTROL  pid · setpoint · controller
+│   ├── filter/               FILTER   odometry.c (filtros y estimador, por escribir)
 │   ├── sensor/               SENSOR   encoder.c · imu.c · battery.c · encoders.md
 │   ├── hal/                  HAL      adc · drv8833 · gpio · i2c · pwm · spi ·
 │   │                                  systemclock · timers · uart
-│   └── hw/                   HW       io.c · io_def.h
+│   ├── hw/                   HW       io.c · io_def.h
+│   └── test/                 banco del PC: pid_sim · odometry_sim · profile_test · format_test
 │
 ├── Documentacion/            Documentación técnica (índice en su README.md)
 ├── Datasheets/               Hojas de datos (DRV8833, STM32F103, SFH 4550, ST-1KL3A)
@@ -119,7 +132,7 @@ graph TD
     DRV["🎛️ Driver DRV8833"]:::potencia
     M1["⚙️ N20 GA12-N20 6V izq"]:::potencia
     M2["⚙️ N20 GA12-N20 6V der"]:::potencia
-    WH["🛞 Ruedas Ø21mm"]:::potencia
+    WH["🛞 Ruedas Ø24 mm"]:::potencia
 
     %% Componentes Lógicos y Sensores
     BP["🧠 Blue Pill STM32F103<br>regulador 3.3V"]:::logica
@@ -168,21 +181,22 @@ graph TD
 
 ## 📊 Estado del Proyecto
 
-**Fase**: bring-up de módulos terminado — lo que falta es la capa de control
+**Fase**: hardware del prototipo validado y lazo de control cerrado — lo que falta es **navegar**
+(usar la pared como referencia y resolver el laberinto).
 
-- ✅ Arquitectura por capas establecida y compilando
-- ✅ HW / HAL / SENSOR + **banco de 12 pruebas de bring-up**
-- ✅ Motores (PA8–PA11 con DRV8833) e **identificación izquierda/derecha**
-- ✅ **Encoders**: 7 PPR y reductora 1:10 ⇒ **280 cuentas** y **235,6 µm** por vuelta de rueda
-- ✅ IMU por SPI2 · telemetría Teleplot por USART3 · reloj del ADC corregido (12 MHz)
-- ✅ **Interfaz de usuario**: 4 botones (pull-up interno) + **OLED SSD1306** por I2C1
-- ✅ Lista de hardware cerrada, con enlaces de compra (ver `hardware.md` §7)
-- ✅ Módulo de batería 2S (divisores calculados; pendientes de montar)
-- ❌ **CONTROL y FILTER**: por escribir **de cero** (el antiguo *stash* es obsoleto)
-- ❌ Odometría, máquina de estados, giros de 90° y navegación
-- ✅ **Trocha efectiva medida (1-oct): 77,6 mm** · el radio de rodadura ya va dentro de los µm/cuenta
+- ✅ Arquitectura por capas **con `core/` portable**: `core/`, `control/` y `filter/` compilan en el PC y no tocan la HAL
+- ✅ HW / HAL / SENSOR + banco de pruebas de bring-up lanzable desde el menú
+- ✅ Motores por DRV8833, **4 sensores de pared IR**, IMU por SPI2, encoders TIM2/TIM3 y batería 2S
+- ✅ **Encoders**: 7 PPR y reductora 1:10 ⇒ **280 cuentas** nominales por vuelta de rueda (**270,7 medidas**) y **287,0 µm/cuenta** medidos el 1-oct
+- ✅ **Trocha efectiva 77,6 mm** medida y **odometría validada** (−0,3 % en 1 m; giros de 90° clavados)
+- ✅ **CONTROL**: PID de velocidad **por rueda en la interrupción de TIM1**, sintonizado (0,5 % de error de régimen)
+- ✅ **Movimiento**: perfiles trapezoidales (`core/profile`) y giros cerrados con el giroscopio
+- ✅ **Interfaz**: menú por bloques con 4 botones + OLED SSD1306, telemetría Teleplot y consola por USART3
+- ❌ **Navegación**: *wall follower* fiable y *flood fill* — el robot todavía choca en el laberinto
+- ❌ **PCB propia** (V1, 70 × 90 mm): el prototipo va sobre placa de prototipos con *wrapping*
 
-> Estado detallado y siguientes pasos: [estado-del-proyecto.md](Documentacion/estado-del-proyecto.md)
+> Estado detallado y orden de ataque: [estado-del-arte.md](Documentacion/estado-del-arte.md) ·
+> [estado-del-proyecto.md](Documentacion/estado-del-proyecto.md)
 
 ## 📄 Documentación
 
@@ -243,6 +257,32 @@ platformio run -t upload
 cd firmware
 platformio device monitor -b 115200
 ```
+
+---
+
+## ⚖️ Licencia
+
+Doble licencia, una por tipo de obra:
+
+| Qué | Licencia | Fichero |
+|:----|:---------|:--------|
+| **Software** — `firmware/` y los scripts de banco de `firmware/test/` | **GPL-3.0-or-later** | [LICENSE](./LICENSE) |
+| **Diseño de hardware** — `mechanical/`, `Documentacion/Pinout.*` y los diagramas de diseño | **CERN-OHL-S-2.0** (fuertemente recíproca) | [LICENSE-HARDWARE](./LICENSE-HARDWARE) |
+
+**Por qué así**: la CERN Open Hardware Licence está pensada para **documentación de diseño y hardware**, no para código. De sus tres variantes, la **S** (fuertemente recíproca) es la que exige que las mejoras del diseño vuelvan al proyecto, y la licencia de software **más próxima** a ella es la **GPL-3.0**. Las dos comparten la misma condición: quien mejore el diseño o el firmware y lo distribuya, tiene que publicar esa mejora.
+
+- Las **hojas de datos** de `Datasheets/` **no** se relicencian: son de sus fabricantes y conservan su aviso propio.
+- Las **imágenes y modelos de terceros** conservan su licencia de origen (ver [`mechanical/CREDITOS-GrabCAD.md`](./mechanical/CREDITOS-GrabCAD.md)).
+- `-or-later` significa que se puede usar la versión 3 de la GPL **o cualquier posterior**.
+
+### Créditos y atribuciones
+
+Este proyecto **se basa** en el trabajo de otros y esa deuda se reconoce por escrito:
+
+- **`ukmars/mazerunner-core`** (Peter Harrison, UK Micromouse Society) — **MIT**. `firmware/core/profile.c` es una adaptación de su `Profile`, y de ahí salen también el esquema de mapa/*flood fill* y la corrección de dirección por CTE. El aviso de copyright original se conserva **en el propio fichero**, como exige la MIT.
+- **`micromouseonline/ukmarsbot`** — **MIT**: geometría, reparto de pines y filosofía del robot.
+- **`OPRobots/ZoroBot3`** — **GPL-3.0**: se leen sus **ideas** (sensores calibrados a distancia, perfil de giro, reseteo por borde de pared), **no su código**.
+- **STMicroelectronics** — el HAL de STM32Cube se enlaza bajo **BSD-3-Clause**; es un paquete externo de PlatformIO y no está en este repositorio.
 
 
 

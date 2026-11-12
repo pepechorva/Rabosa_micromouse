@@ -158,7 +158,7 @@ pantalla OLED** (sin recompilar) y se sale con el botón **MENU**.
 | 16 | IR modulado (ON−OFF por software) | — | — | ❌ | Implementada el 30-sep; es la base del futuro `filter/adc_filter.c` |
 | 17 | Curva distancia↔ADC de los IR | — | — | ❌ | Implementada el 30-sep; 5 puntos por canal; insumo del wall follower |
 | 18 | PID de velocidad por rueda | 2026-09-28 | — | ⚠️ | **Verificado en el PC** (simulación): sobreimpulso −0.2 % y error 0.2 % con planta de primer orden; falta la sintonía sobre el robot y el 10/10 |
-| 19 | Odometría diferencial (pose x, y, θ) | 2026-10-01 | 1 | ⚠️ | **Medida empujando a mano**, con las ruedas nuevas: recta de 1 m ⇒ `>ODO_D` = **997 y 995 mm** (−0,3 % y −0,5 %: el factor de **287,0 µm/cuenta** es bueno y la mesa **no** inflaba la medida) · giro de 90° a mano ⇒ `>ODO_TH` = **+83°** (izquierda, X 2 mm) y **−84°** (derecha, X 7 mm): un 7 % corto y con el **mismo sesgo en los dos sentidos** ⇒ el culpable es la trocha, no un encoder · **trocha efectiva medida: 77,6 mm** (`ODOM_TROCHA_MM_DEF`, era 83,6) y con ella el giro sale **clavado: +90° y −90°**. La pantalla enseña `D`/`ANG`/`CIE` y **UP** congela la lectura, así que se puede usar **sin Teleplot**. ⏳ Falta el cuadrado de 4×300 mm (§15) y la pasada 10/10 |
+| 19 | Odometría diferencial (pose x, y, θ) | 2026-10-01 | 1 | ⚠️ | **Medida empujando a mano**, con las ruedas nuevas: recta de 1 m ⇒ `>ODO_D` = **997 y 995 mm** (−0,3 % y −0,5 %: el factor de **287,0 µm/cuenta** es bueno y la mesa **no** inflaba la medida) · giro de 90° a mano ⇒ `>ODO_TH` = **+83°** (izquierda, X 2 mm) y **−84°** (derecha, X 7 mm): un 7 % corto y con el **mismo sesgo en los dos sentidos** ⇒ el culpable es la trocha, no un encoder · **trocha efectiva medida: 77,6 mm** (`ODOM_TROCHA_MM_DEF`, era 83,6) y con ella el giro sale **clavado: +90° y −90°**. La pantalla enseña `D`/`ANG`/`CIE` y **UP** congela la lectura, así que se puede usar **sin Teleplot**. ⏳ Falta el cuadrado de 4×300 mm (§15) y la pasada 10/10. ✅ **Reactivada el 2026-10-11**, y ahora lleva el **giroscopio en paralelo** (`>ODO_GYR`). Es la única prueba que **no toca los motores**, así que deja las ruedas libres y sirve para girar el robot **a mano** contra una referencia externa: con ella se destapó que la escala del giroscopio estaba en 1,20 cuando vale **1,01** (ver §16) |
 
 > **Cómo leer la columna de estado**: ✅ validada en hardware · ⚠️ validada **con reservas**
 > (falta la fecha exacta, la repetibilidad, o quedó a medias) · ➖ **retirada o sustituida** por otra
@@ -1240,8 +1240,7 @@ Con el robot **en el aire y las ruedas libres**:
 régimen permanente < 2 %, y con la misma consigna en las dos ruedas **el robot va recto**.
 
 > ⚠️ La sintonía es de cada robot y de cada batería: si la tensión cambia mucho, las ganancias
-> también. Se puede repetir cuando haga falta: el menú la tiene en **TEST → PID VELOCIDAD** y en
-> **CAL → SINTONIA PID**.
+> también. Se puede repetir cuando haga falta: el menú la tiene en **MOTORES → SINTONIA**.
 ---
 
 ## 15. Procedimiento: odometría (prueba 19) y calibración de la trocha
@@ -1402,8 +1401,17 @@ se prueba lo que de verdad importa: que los errores **no se acumulen**.
 | 2 | `ANG` — ángulo girado · `E` — error acumulado |
 | 3 | `OK:180 UP:90 DN:90` — el mapa de botones |
 
-Telemetría: `>MOV_D`, `>MOV_ANG`, `>MOV_E_D`, `>MOV_E_ANG`, `>MOV_GYR`, `>MOV_GYROK` y `>MOV_OK`
-(1 si el último llegó a tolerancia).
+Telemetría: `>MOV_D` (camino recorrido, acumula $|ds_{centro}|$), **`>MOV_DISP`** (desplazamiento
+**neto** de ese movimiento, que es el que hay que juzgar), `>MOV_ANG`, `>MOV_GYR` con `>MOV_GYROK`,
+`>MOV_X`/`>MOV_Y` (posición, para saber si el robot **ha vuelto**), los errores
+`>MOV_E_D`/`>MOV_E_ANG`, el sesgo en uso **`>MOV_SESGO`** (en reposo, por debajo de 0,2 °/s), la
+referencia del giro **`>MOV_GMODO`** y `>MOV_OK` (1 si el último llegó a tolerancia).
+
+> ⚠️ **`>MOV_D` no es la distancia del movimiento.** Acumula el valor absoluto del arco del centro, así
+> que en cuanto el robot va y viene con las correcciones de rumbo **se infla**: medido el 11-oct, un
+> avance nominal de 180 mm dio **202 mm de camino** y **178 mm de desplazamiento**, y el error que se
+> veía (+20 mm acumulado) era **del instrumento**, no del robot. Para juzgar un movimiento se usa
+> `>MOV_DISP`; `>MOV_X`/`>MOV_Y` es lo único que dice si ha vuelto al sitio.
 
 > ⚠️ **Los cinco valores se publican SOLO al terminar el movimiento**, no durante. Mientras el robot
 > avanza (~2,2 s) la pantalla y la telemetría se quedan **congeladas** en el resultado anterior: es el
@@ -1735,6 +1743,47 @@ MOV DOWN     90° a la derecha
 > ⚠️ El robot se mueve: **en el suelo**, con espacio, y **con la batería** (no con la fuente de
 > laboratorio, cuyo lazo de control se hunde en los escalones de corriente).
 
+### Calibrar la escala del giroscopio (`MOTION_GYRO_ESCALA`)
+
+⚠️ **La telemetría del giroscopio NO sirve para calibrar el giroscopio.** El lazo de giro cierra sobre
+`>MOV_GYR`, que **ya está escalado**: si se sube la escala el robot gira menos, pero el lazo sigue
+cortando cuando su cuenta llega a 90 y la telemetría vuelve a decir 90. **La referencia se valida a sí
+misma** — con cualquier escala da 88-90° por esquina. Hace falta una referencia **externa**.
+
+**La referencia: dos líneas perpendiculares sobre la mesa**, una alineada con el morro al empezar y otra
+a 90°. Lo que se mide es la **orientación** final del robot contra esas líneas.
+
+**Procedimiento** (robot en el suelo y **con la batería**):
+
+1. Entrar en **MOTOR MOVIMIENTO** con el robot **parado**: al entrar se calibra el sesgo con 50 muestras.
+2. Poner el robot alineado con la línea longitudinal, con sitio para dar la vuelta entera.
+3. `MOV UP 4` por consola → **360° pedidos**. Se mira cuántos grados ha girado **de verdad**.
+   ⚠️ **Un giro suelto no vale**: 10° de error de escala en 90° se confunden con «se ha quedado corto
+   por rozamiento». Lo que lo delata es pedir **varias vueltas**.
+4. Corregir y repetir **sin regrabar**: `GYRO ESC <valor>` cambia la escala en caliente. Un reflasheo
+   reinicia el robot y con él la calibración del sesgo, así que dos tandas no se podrían comparar.
+
+$$ESC_{nuevo} = ESC_{usado} \cdot \frac{\theta_{pedido}}{\theta_{real}}$$
+
+**Resultado (2026-10-11):**
+
+| `GYR_ESC` | `>MOV_ANG` por giro | Lo que hizo el robot |
+|:---------:|:-------------------:|:--------------------:|
+| 1,20 | 79,9° · 81,4° | **~80°** ⇒ 10° corto **en cada esquina** |
+| 1,07 | 88,6° | ~85° |
+| **1,01** | 91,8° | **~2° corto** tras la vuelta entera — y esos 2° eran la tolerancia |
+
+> ✅ **El sensor es bueno**: en cuatro giros de 90° el giroscopio se repite con **±0,03°** de dispersión
+> (las cuentas, con ±0,5°), y en reposo deriva **menos de 0,1° por minuto**. Lo que estaba mal era el
+> **número del firmware**, no el sensor.
+
+> ⚠️ **La tabla de escalas del 2026-10-02, que daba 1,20, queda retirada.** Aquella medida no miraba la
+> orientación final sino el **desplazamiento del morro** contra una cinta, convertido a ángulo con
+> $d = 2L\sin(\Delta/2)$ y $L$ = 62 mm: esa conversión solo vale si el pivote es sobre el centro, y esa
+> noche el robot **pivotaba sobre una rueda dura** (el propio registro de esa sesión lo dice). Con la
+> escala corregida, un `ESC` de 1,20 habría dejado al robot unos **57° cortos** de la marca, y aquella
+> medida decía «0°». Comparar la **orientación** contra dos líneas no tiene ese punto débil.
+
 ### Ajuste de las constantes
 
 Los números que se tocan en banco están todos en `app/motion.h`:
@@ -1742,7 +1791,7 @@ Los números que se tocan en banco están todos en `app/motion.h`:
 | Constante | Por defecto | Qué cambia |
 |:----------|:-----------:|:-----------|
 | `MOTION_VEL_MM_S` | 250 | Velocidad de crucero [mm/s] |
-| `MOTION_TOL_MM` / `MOTION_TOL_GRADOS` | 3 / 1,5 | Cuándo se da por terminado el movimiento |
+| `MOTION_TOL_MM` / `MOTION_TOL_GRADOS` | 3 / 0,5 | Cuándo se da por terminado el movimiento. ⚠️ El lazo suelta en la **primera muestra** que entra en la banda, así que deja un **sesgo del tamaño de esa banda**: con 1,5 salía **1,45° corto por esquina** (medido el 11-oct) |
 | `MOTION_AVANCE_KP` | 1,5 | Freno proporcional al avanzar |
 | `MOTION_GIRO_KP` | 4 | Rapidez del lazo de ángulo |
 | `MOTION_GIRO_CENTRO_KP` | 8 | Cuánto corrige el **desplazamiento** del giro [mm/s por mm] |
@@ -1752,7 +1801,15 @@ Los números que se tocan en banco están todos en `app/motion.h`:
 | `MOTION_GYRO_KP` | 12 | Cuánto corrige el desvío al avanzar recto **con el giroscopio**. ⚠️ El valor está puesto para que el lazo **no sature** (ver «El zigzag»), no por rapidez |
 | `MOTION_GYRO_CORR_MAX_MM_S` | 60 | Tope de esa corrección [mm/s]: al 24 % de la velocidad de crucero. Con 12, satura a partir de **5°** |
 | `MOTION_GYRO_SIGNO_Z` | 1 | Signo del eje Z — **medido**, ver «Verificar el giroscopio» |
-| `MOTION_GYRO_REFINAR_MAX_PASO` | 5 | Cuánto puede mover el sesgo un solo refinamiento [°/s]: es el tope que impide que una medida contaminada le dé la vuelta |
+| `MOTION_GYRO_ESCALA` | 1,01 | Cuánto **mide de menos** el giroscopio. ⚠️ **No se calibra con la telemetría del propio giroscopio**: ver «Calibrar la escala del giroscopio» |
+| `MOTION_GYRO_REFINAR_MAX_PASO` | 20 | Cuánto puede mover el sesgo un solo refinamiento [°/s]. ⚠️ **Un tope de 20 no protege nada**: la contaminación medida es de 0,5-0,6 °/s y lo pasa de sobra (ver el aviso del sesgo, abajo) |
+| `MOTION_PASO_MS` / `MOTION_GIRO_PASO_MS` | 10 / 1 | Período del lazo: el **avance** a 10 ms y el **giro** a 1 ms |
+
+> ⚠️ **El giro va a 1 ms y el avance a 10 ms, y es a propósito.** El error de un giro por retardo vale
+> $\Delta\theta \approx \omega \cdot T$: con el lazo a 10 ms **más los ~10 ms de los dos lazos de
+> rueda**, girando a 130 °/s salen **~2,6°** — que es justo el error que se medía (−3,0° y −1,3° en
+> tandas distintas). A 1 ms ese término baja a ~0,5°. En el **avance** el retardo no se nota (el robot
+> va recto y el corrector actúa despacio a propósito), así que ese lazo se queda en 10 ms.
 
 Las **ganancias del lazo de velocidad** no están ahí: se cogen de la prueba 18 (`APP_PID_GetGanancia()`),
 que se sintoniza en caliente por consola. Se sintoniza una vez y vale para todo.
@@ -1766,9 +1823,9 @@ que se sintoniza en caliente por consola. Se sintoniza una vez y vale para todo.
 | Se pasa siempre en el mismo sentido al frenar | Es la inercia: `MOTION_TOL_GRADOS` demasiado estrecha para esa velocidad |
 | Al avanzar se va de lado | Si `>MOV_GYROK` es **1**, el problema **no** es el lazo: mira si el robot roza, si una rueda arrastra o si los encoders no son simétricos (prueba 7). Si es **0**, la IMU no responde (prueba 5) y manda el respaldo por odometría, que **arrastra** el error (subir `MOTION_RUMBO_KP` no lo arregla) |
 | `>MOV_GYR` se separa de `>MOV_ANG` | Los dos miden el mismo giro y **en el avance coinciden** (02-oct: +2,3° frente a −0,1°). Si se separan mucho **en el avance**, la odometría está mal (µm por cuenta, prueba 7; trocha, prueba 19). En un **giro** se separan a propósito: la odometría sobreestima el pivote ~44 % y ahora manda el giroscopio |
-| El robot gira **menos** de 90° | Si `>MOV_GYROK` es **1** ya no puede ser el lazo: mira si el robot **derrapa** al pivotar, y comprueba el **dato real** con una marca en el suelo. Con **0**, manda la odometría, que sobreestima el pivote un 44 % (medido el 02-oct) |
+| El robot gira **menos** de 90° | Con `>MOV_GYROK` = **1**, cuenta **cuánto** y compáralo con la marca del suelo: si `>MOV_E_ANG` acumula ~**0,5° por esquina** no hay nada roto — **es la banda de `MOTION_TOL_GRADOS`**. Si acumula varios grados, lo que está mal es la **escala** (`MOTION_GYRO_ESCALA`): ver «Calibrar la escala del giroscopio». Con **0** manda la odometría, que sobreestima el pivote un 44 % (medido el 02-oct) |
 | El robot se va en curva **clara** al avanzar | `MOTION_GYRO_SIGNO_Z` al revés (ver «Verificar el giroscopio») |
-| `>MOV_GYR`/`>WF_GYR` acumula **cientos de grados** y el robot **no gira** | **El sesgo del giroscopio está mal medido** (se calibró con el robot moviéndose): el lazo integra ese error y corrige a tope sin parar ⇒ el robot choca de lado. Volver a entrar en la prueba **con el robot quieto** |
+| `>MOV_GYR`/`>WF_GYR` acumula **cientos de grados** y el robot **no gira** | **El sesgo del giroscopio está mal medido** (se calibró con el robot moviéndose): el lazo integra ese error y corrige a tope sin parar ⇒ el robot choca de lado. Volver a entrar en la prueba **con el robot quieto**. ⚠️ **Y el refinamiento del asentamiento también lo contamina** (medido el 11-oct): el sesgo salta **+0,5-0,6 °/s por giro** cuando el pivote arrastra, porque `MOTION_GYRO_REFINAR_ALFA` = 1,0 se lleva al sesgo la inercia del frenado. Se ve en `>MOV_SESGO`, que en reposo tiene que quedarse **por debajo de 0,2 °/s** — y correlaciona con la calidad del pivote: `>MOV_DISP` de −8,5 mm daba +0,64 °/s, y de −0,8 mm daba 0,00 |
 | El robot hace **zigzag** (va recto pero temblando) | **El lazo está saturado**: con $K_p$ alto la corrección llega al tope con un desvío mínimo y el lazo se comporta como un **relé**, que oscila siempre por el retardo. **Bajar `MOTION_GYRO_KP`** (o mirar `e_sat = tope/K_p`: tiene que quedar por encima del desvío que se ve en una celda) |
 | El error de distancia **crece** en cada celda | No es el lazo: es el **µm por cuenta** (prueba 7) |
 

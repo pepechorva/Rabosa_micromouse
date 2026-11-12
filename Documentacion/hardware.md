@@ -22,7 +22,7 @@ graph TD
     DRV[🎛️ Driver DRV8833]:::potencia
     M1[⚙️ N20 GA12-N20 6V + encoder]:::potencia
     M2[⚙️ N20 GA12-N20 6V + encoder]:::potencia
-    WH[🛞 Ruedas Ø21mm]:::potencia
+    WH[🛞 Ruedas Ø24 mm]:::potencia
     BP[🧠 Blue Pill STM32F103<br>regulador 3,3 V]:::logica
     LEDS[🚨 4 emisores SFH 4550<br>conmutados por 4 BC337]:::sensores
     IR_REC[👁️ 4 fototransistores ST-1KL3A]:::sensores
@@ -1170,7 +1170,13 @@ justo lo que necesitan los emisores IR `WALL L1/L2`.
 | **OK** | PA12 | A | Pin limpio |
 
 Numeración del evento (`BUTTONS_GetEvent()`, potencias de dos):
-**1 = MENU · 2 = UP · 4 = DOWN · 8 = OK**.
+**2 = UP · 4 = DOWN · 8 = OK**.
+
+> [!IMPORTANT] **MENU no sale por `BUTTONS_GetEvent()`** desde el 2026-10-11, aunque su número siga
+> reservado como `1`. Quien quiera MENU llama a **`BUTTONS_SalidaSolicitada()`**, que es lo que espera
+> el `while` de las pruebas: si el evento lo consumiera también, MENU dejaría de sacar de las
+> pruebas, porque el `GetEvent()` del cuerpo del bucle se comería la bandera antes de que el `while`
+> la viera. El menú es el único sitio que lo consume como evento, y lo hace explícitamente.
 
 `PC13` **sigue siendo el LED onboard** y `PA15` queda libre.
 
@@ -1222,10 +1228,11 @@ BUTTONS_Update();                    /* cada 1 ms */
 if (BUTTONS_WasPressed(BTN_OK)) { … } /* evento: se consume al leerlo */
 if (BUTTONS_IsPressed(BTN_UP))  { … } /* estado mantenido */
 uint8_t mask = BUTTONS_GetMask();     /* bit0 MENU · bit1 UP · bit2 DOWN · bit3 OK */
-uint8_t ev   = BUTTONS_GetEvent();    /* pulsado: 1 MENU · 2 UP · 4 DOWN · 8 OK · 0 ninguno */
+uint8_t ev   = BUTTONS_GetEvent();    /* pulsado: 2 UP · 4 DOWN · 8 OK · 0 ninguno */
 ```
-Los eventos usan **potencias de dos** (1, 2, 4, 8), los mismos valores que los bits de la
-máscara: es fácil comparar `if (ev & BTN_NUM_OK)` o `if (mask & BTN_NUM_MENU)`.
+Los eventos usan **potencias de dos** (2, 4, 8), los mismos valores que los bits de la
+máscara: es fácil comparar `if (ev & BTN_NUM_OK)` o `if (mask & BTN_NUM_MENU)`. ⚠️ **MENU está en la
+máscara pero no en el evento**: ver el aviso de arriba.
 ---
 
 ### 4.9 Pantalla OLED (SSD1306 128×32)
@@ -1325,10 +1332,10 @@ Comprobaciones obligatorias antes de cablear:
 | Driver de motor | ✅ **Resuelto**: es un **DRV8833** |
 | Sensores IR | ✅ **Resuelto**: **4** canales (`WALL A1`–`A4`) + 4 emisores (`WALL L1`–`L4`) |
 | **Reducción del N20** | ✅ **1:10**: la tabla del fabricante la asigna a las filas de 3000 RPM a 12 V / 1500 RPM a 6 V (la nuestra). La prueba 7 lo verifica |
-| **PPR del encoder** | ✅ **7 PPR** por canal y vuelta del eje del motor (dato del fabricante) ⇒ 70 pulsos y **280 cuentas por vuelta de rueda** ⇒ **235,6 µm/cuenta** (Ø21 mm) |
-| **Trocha efectiva** | ⚠️ **Inconsistente** (82.8 vs 83.6 vs ≈74.8 mm) — crítico para los giros |
-| Radio de rueda | ⚠️ Ø21 mm con goma (a confirmar al rediseñar la rueda) |
-| Resistencias de los emisores IR | ✅ **Calculadas**: **220 Ω** (≈9.3 mA por emisor; 100 Ω para 20 mA) — §4.4 |
+| **PPR del encoder** | ✅ **7 PPR** por canal y vuelta del eje del motor (dato del fabricante) ⇒ 70 pulsos y **280 cuentas nominales** por vuelta de rueda, **270,7 medidas** ⇒ **287,0 µm/cuenta medidos** (§4.1). El nominal con Ø24 sería 269,3 y el medido sale **6,6 % mayor**: no es aplastamiento de la goma, es que el calibre la comprime al medir (§4.1) |
+| **Trocha efectiva** | ✅ **Medida el 2026-10-01: 77,6 mm** (era 83,6, la distancia entre ejes de motor). ⚠️ No coincide con ninguna cota geométrica porque **incluye el deslizamiento del pivote** — §4.1 |
+| Radio de rueda | ✅ **Resuelto (30-sep)**: la rueda montada es **Ø24 con la goma** (llanta Ø20 + goma Ø24) y el **Ø efectivo derivado es 24,7 mm**; el real en reposo andará por 25,4 porque el calibre aplasta la goma. La cifra que manda es la **medida**, 287,0 µm/cuenta — §4.1 |
+| Resistencias de los emisores IR | ✅ **Montadas (30-sep)**: **22 Ω** (½ W) en serie con cada LED y **1 kΩ** en la base del **BC337**. ⚠️ La tabla de **220 Ω** era para GPIO directo y **no aplica**: con 22 Ω cada emisor pide **≈75 mA** y el pin solo aguanta ≈20 mA — §4.4 |
 | Divisores de tensión PB0 / PB1 | ✅ **Soldados y definitivos (30-sep)**: pack **22 kΩ + 10 kΩ** y celda 1 **3k9 + 10 kΩ** (**sin condensador**, §4.6). ⚠️ **No son iguales**, así que el firmware lleva **una $k$ por canal**. La celda 1 no se usa cuando el robot va con fuente de alimentación |
 | Posición física de los 4 **emisores** IR | ✅ **Fijada (30-sep, prueba 14)**: L1 frontal izquierdo · L2 lateral derecho · L3 lateral izquierdo · L4 frontal derecho (§4.4) |
 | Posición física de los 4 **receptores** IR (`WALL A1`–`A4`) | ✅ **Resuelta (30-sep)**: deducida del emparejamiento de la prueba 15 ⇒ R0 frontal der · R1 lateral der · R2 lateral izq · R3 frontal izq (§4.4) |
@@ -1376,7 +1383,7 @@ Comprobaciones obligatorias antes de cablear:
 | 4 | Resistencias emisores IR | **22 Ω** ¼ W + **1 kΩ** de base | ✅ **montadas** (30-sep) | §4.4 |
 | 2 | Resistencias divisor batería | **22 kΩ** + **10 kΩ** | ✅ **montadas** (30-sep) | §4.6. El orden importa: 22 kΩ arriba |
 | 4 | Carga receptores IR | **3 kΩ** | ✅ en la caja (también 3,6 kΩ y 3,9 kΩ) | Elegido el 28-sep (el más bajo de los tres, por margen de ambiente). Ajustar con las pruebas 1 y 15. **Sin condensador** |
-| 2 | **Ruedas** | Llanta Ø20 mm + goma ⇒ Ø21 mm, 8 mm ancho | — (diseño propio, `mechanical/freecad/`) | A rediseñar |
+| 2 | **Ruedas** | Llanta Ø20 mm + goma ⇒ Ø24 mm (rodadura efectiva 24,7), 8 mm ancho | — (diseño propio, `mechanical/freecad/`) | A rediseñar |
 | 1 | **Chasis** | PLA, ~106,7 × 84 mm | — (diseño propio) | Cotas por verificar con los STEP |
 | — | LEDs indicadores | — | — | Solo para la futura PCB V2, y **no** en PC13–PC15 (límite de 3 mA) |
 | 1 | Laberinto | 4×4 (DM + listones) | — | Pendiente de construir |

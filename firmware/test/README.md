@@ -11,8 +11,31 @@ Las pruebas del robot se catalogan y se registran en `Documentacion/pruebas-brin
 se lanzan desde el **menú** de la OLED, no hace falta recompilar.
 
 > ⚠️ Este directorio **no entra en el build del firmware**: `extra_script.py` solo añade las capas
-> `app`, `control`, `filter`, `sensor`, `hal` y `hw`. Los ficheros de aquí se compilan a mano con
-> `gcc` para el PC.
+> `core`, `app`, `control`, `filter`, `sensor`, `hal` y `hw`. Los ficheros de aquí se compilan a mano
+> con `gcc` para el PC.
+
+---
+
+## `profile_test.c` — perfiles trapezoidales (capa CORE)
+
+El perfil es matemática pura —no toca el hardware ni el reloj—, así que se simula entero en el PC: se
+le hacen correr nueve movimientos (celdas, medias celdas, giros de 90°, marcha atrás, distancias
+diminutas) y se comprueba que **recorre lo que se le pide**, que **no se pasa de la velocidad de
+crucero** y que **frena antes de llegar**.
+
+```bash
+gcc -Wall -Wextra -I firmware -o /tmp/profile_test \
+    firmware/test/profile_test.c firmware/core/profile.c -lm
+/tmp/profile_test
+```
+
+Resultado esperado (2026-10-30): 9 movimientos y **0 fallos**; el error de posición va de −0,11 mm
+(celda de 180 mm a 600 mm/s) a +0,45 mm (perfil que termina rodando a 150 mm/s), dentro de la
+tolerancia de 0,125 unidades del módulo.
+
+> ⚠️ Lo que aquí **no** se valida es la distancia real recorrida: el perfil pide velocidad, y quien la
+> convierte en movimiento es el lazo de velocidad con la odometría. Ver
+> `Documentacion/estado-del-arte.md`.
 
 ---
 

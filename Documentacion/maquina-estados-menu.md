@@ -11,13 +11,14 @@
 
 | Fase | Estado | Notas |
 |:----:|:------:|:------|
-| M0 · Glifos | ✅ | Añadidos `F G R X`, `+`, `/` y `>` a `app/oled.c` |
+| M0 · Glifos | ✅ | Añadidos `F G R X`, `+`, `/` y `>` a `app/oled.c`. El **2026-10-11** se completó el alfabeto con `H J Q Y Z` (25 B), que es lo que permite escribir `DERECHA`, `IZQUIERDA` y `AJUSTE` |
 | M1 · Menú | ✅ | `app/menu.c/h` (nuevo) + máquina de estados en `application.c` |
 | M2 · Banco lanzable | ✅ | ⚠️ **Sin `bench.c` ni `APP_Pump()`**: las pruebas siguen en `application.c` y su bucle es `while (!BUTTONS_SalidaSolicitada())` |
 | M3 · CAL/DIAG | ✅ | Dentro de TEST (bloques) y en DIAG; los asistentes guiados son pruebas que salen con MENU |
 | M4 · FAULT | ✅ | Batería crítica ⇒ frena y avisa. **Se sale con `OK`** aunque siga crítico (30-sep) |
 | M5 · RUN | ❌ | Bloqueado hasta que existan CONTROL y FILTER |
 | **M6 · FSM** | ✅ | **Menú y APP como máquinas de estados** con el patrón `fsm` (`app/fsm.h`) y árbol nuevo: TEST (4 bloques) · EXPLORE · RESOLVE · SETTINGS · DIAG · PARAR (30-sep) |
+| **M7 · Árbol por bloques** | ✅ | **Segundo árbol** (11-oct): la raíz deja de ser `TEST`/`EXPLORE`/… y pasa a ser **bloques de trabajo** — `BATERIA` · `IR` · `MOTORES` · `TELEMETRIA` · `EXPLORACION` · `RESOLUCION` · `AJUSTES` · `DIAGNOSTICO` · `PARAR`. Además: **voltaje del pack en la cabecera de la raíz** (`MENU_SetVoltaje()`, refresco cada 2 s) y los glifos `H J Q Y Z`. Ver [esquema-firmware.md](./esquema-firmware.md) §6 |
 
 **Tres cambios de diseño, los tres a mejor:**
 

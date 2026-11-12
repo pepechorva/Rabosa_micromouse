@@ -1,4 +1,5 @@
 #include "app/telemetry.h"
+#include "app/format.h"
 #include "hal/uart.h"
 #include <stdio.h>
 
@@ -41,10 +42,27 @@ void TELEM_SendString(const char *label, const char *value)
 }
 
 /* ------------------------------------------------------------------ */
+/**
+ * @brief Manda un valor en coma flotante con 3 decimales, en formato Teleplot.
+ *
+ * No usa `%f` a proposito: la conversion de newlib arrastra `_dtoa_r` y toda la
+ * aritmetica de doble precision (11,2 KB de Flash medidos, ver `app/format.h`). El texto
+ * que sale es **el mismo**, asi que Teleplot lo sigue leyendo como un numero.
+ *
+ * @param label Etiqueta de la traza, en mayusculas y sin acentos
+ * @param value Valor a publicar
+ */
 void TELEM_SendFloat(const char *label, float value)
 {
+    char numero[24];
     char buf[64];
-    int len = snprintf(buf, sizeof(buf), ">%s:%.3f\n", label, (double)value);
+    int  len;
+
+    if (FORMAT_Float(numero, sizeof(numero), value, 3U) == 0U) {
+        return;
+    }
+
+    len = snprintf(buf, sizeof(buf), ">%s:%s\n", label, numero);
     if (len > 0) UART_SendData((uint8_t *)buf, (uint16_t)len);
 }
 
@@ -77,12 +95,32 @@ void TELEM_SendButton(uint8_t numero)
 }
 
 /* ------------------------------------------------------------------ */
+/**
+ * @brief Manda las seis magnitudes de la IMU, cada una con su precision.
+ *
+ * Aceleraciones con 2 decimales y velocidades angulares con 1, como antes, pero sin `%f`
+ * (ver `app/format.h`).
+ */
 void TELEM_SendIMU(float ax, float ay, float az, float gx, float gy, float gz)
 {
-    char buf[128];
-    int len = snprintf(buf, sizeof(buf),
-                ">AX:%.2f\n>AY:%.2f\n>AZ:%.2f\n>GX:%.1f\n>GY:%.1f\n>GZ:%.1f\n",
-                (double)ax, (double)ay, (double)az,
-                (double)gx, (double)gy, (double)gz);
+    char s_ax[16];
+    char s_ay[16];
+    char s_az[16];
+    char s_gx[16];
+    char s_gy[16];
+    char s_gz[16];
+    char buf[160];
+    int  len;
+
+    FORMAT_Float(s_ax, sizeof(s_ax), ax, 2U);
+    FORMAT_Float(s_ay, sizeof(s_ay), ay, 2U);
+    FORMAT_Float(s_az, sizeof(s_az), az, 2U);
+    FORMAT_Float(s_gx, sizeof(s_gx), gx, 1U);
+    FORMAT_Float(s_gy, sizeof(s_gy), gy, 1U);
+    FORMAT_Float(s_gz, sizeof(s_gz), gz, 1U);
+
+    len = snprintf(buf, sizeof(buf),
+                   ">AX:%s\n>AY:%s\n>AZ:%s\n>GX:%s\n>GY:%s\n>GZ:%s\n",
+                   s_ax, s_ay, s_az, s_gx, s_gy, s_gz);
     if (len > 0) UART_SendData((uint8_t *)buf, (uint16_t)len);
 }
