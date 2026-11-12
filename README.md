@@ -119,7 +119,7 @@ graph TD
     DRV["🎛️ Driver DRV8833"]:::potencia
     M1["⚙️ N20 GA12-N20 6V izq"]:::potencia
     M2["⚙️ N20 GA12-N20 6V der"]:::potencia
-    WH["🛞 Ruedas Ø21mm"]:::potencia
+    WH["🛞 Ruedas Ø24 mm"]:::potencia
 
     %% Componentes Lógicos y Sensores
     BP["🧠 Blue Pill STM32F103<br>regulador 3.3V"]:::logica
@@ -168,21 +168,22 @@ graph TD
 
 ## 📊 Estado del Proyecto
 
-**Fase**: bring-up de módulos terminado — lo que falta es la capa de control
+**Fase**: hardware del prototipo validado y lazo de control cerrado — lo que falta es **navegar**
+(usar la pared como referencia y resolver el laberinto).
 
-- ✅ Arquitectura por capas establecida y compilando
-- ✅ HW / HAL / SENSOR + **banco de 12 pruebas de bring-up**
-- ✅ Motores (PA8–PA11 con DRV8833) e **identificación izquierda/derecha**
-- ✅ **Encoders**: 7 PPR y reductora 1:10 ⇒ **280 cuentas** y **235,6 µm** por vuelta de rueda
-- ✅ IMU por SPI2 · telemetría Teleplot por USART3 · reloj del ADC corregido (12 MHz)
-- ✅ **Interfaz de usuario**: 4 botones (pull-up interno) + **OLED SSD1306** por I2C1
-- ✅ Lista de hardware cerrada, con enlaces de compra (ver `hardware.md` §7)
-- ✅ Módulo de batería 2S (divisores calculados; pendientes de montar)
-- ❌ **CONTROL y FILTER**: por escribir **de cero** (el antiguo *stash* es obsoleto)
-- ❌ Odometría, máquina de estados, giros de 90° y navegación
-- ✅ **Trocha efectiva medida (1-oct): 77,6 mm** · el radio de rodadura ya va dentro de los µm/cuenta
+- ✅ Arquitectura por capas **con `core/` portable**: `core/`, `control/` y `filter/` compilan en el PC y no tocan la HAL
+- ✅ HW / HAL / SENSOR + banco de pruebas de bring-up lanzable desde el menú
+- ✅ Motores por DRV8833, **4 sensores de pared IR**, IMU por SPI2, encoders TIM2/TIM3 y batería 2S
+- ✅ **Encoders**: 7 PPR y reductora 1:10 ⇒ **280 cuentas** nominales por vuelta de rueda (**270,7 medidas**) y **287,0 µm/cuenta** medidos el 1-oct
+- ✅ **Trocha efectiva 77,6 mm** medida y **odometría validada** (−0,3 % en 1 m; giros de 90° clavados)
+- ✅ **CONTROL**: PID de velocidad **por rueda en la interrupción de TIM1**, sintonizado (0,5 % de error de régimen)
+- ✅ **Movimiento**: perfiles trapezoidales (`core/profile`) y giros cerrados con el giroscopio
+- ✅ **Interfaz**: menú por bloques con 4 botones + OLED SSD1306, telemetría Teleplot y consola por USART3
+- ❌ **Navegación**: *wall follower* fiable y *flood fill* — el robot todavía choca en el laberinto
+- ❌ **PCB propia** (V1, 70 × 90 mm): el prototipo va sobre placa de prototipos con *wrapping*
 
-> Estado detallado y siguientes pasos: [estado-del-proyecto.md](Documentacion/estado-del-proyecto.md)
+> Estado detallado y orden de ataque: [estado-del-arte.md](Documentacion/estado-del-arte.md) ·
+> [estado-del-proyecto.md](Documentacion/estado-del-proyecto.md)
 
 ## 📄 Documentación
 

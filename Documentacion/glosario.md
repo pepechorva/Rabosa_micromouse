@@ -156,7 +156,7 @@
 |:--------|:------------|:-----------------|
 | **PPR** | *Pulses Per Revolution*: pulsos por vuelta del eje del motor | **7 PPR** (fabricante), por canal |
 | **cuentas** (*counts*) | Pulsos tras la decodificación ×4 | **280 cuentas** por vuelta de rueda |
-| **µm/cuenta** | Avance por cada cuenta | **235.6 µm** (rueda Ø21 mm) |
+| **µm/cuenta** | Avance por cada cuenta | **287,0 µm**, medido el 1-oct (nominal 269,3 con rueda Ø24) |
 | **ticks** | Cuentas del contador del encoder | Prueba 9: 1500 ticks por rampa (≈3 s) |
 | **mm/s, m/s²** | Unidades de velocidad y aceleración usadas en CONTROL | Consigna de 300 mm/s; rampa de 600 mm/s² |
 | **%** | Unidad del duty (y de la consigna de la prueba 9) | −100…100 % |
